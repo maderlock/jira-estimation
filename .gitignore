@@ -35,8 +35,8 @@ ENV/
 
 # Project specific
 data/
-models/
-*.pkl
+models/*.pkl
+models/*.pt
 notebooks/.ipynb_checkpoints/
 
 # Logs

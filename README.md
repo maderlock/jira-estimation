@@ -1,161 +1,115 @@
-# JIRA Estimation AI
+# JIRA Ticket Time Estimation
 
-A machine learning system for estimating JIRA ticket completion times based on historical data using embeddings and regression models.
+Machine learning system to predict JIRA ticket completion times using embeddings and regression techniques.
 
 ## Features
 
-- Fetches historical JIRA ticket data including descriptions and comments
-- Generates embeddings using OpenAI's API
-- Supports both linear regression and neural network models
-- Efficient text processing with chunking to minimize API costs
-- Smart caching system for rapid experimentation
-- Prepared for AWS Lambda deployment (future)
-
-## Setup
-
-1. Clone the repository:
-```bash
-git clone <repository-url>
-cd jira-ai
-```
-
-2. Create and activate a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-4. Create a `.env` file:
-```bash
-cp .env.example .env
-```
-Then edit `.env` with your actual credentials and configuration.
-
-## Usage
-
-### Step 1: Data Collection
-
-First, you'll need to fetch data from JIRA. The system includes smart caching to avoid unnecessary API calls.
-
-```bash
-# Fetch all completed tickets (uses cache by default)
-python -m src.main --fetch
-
-# Fetch fresh data, ignoring cache
-python -m src.main --fetch --no-cache
-
-# Fetch from specific projects
-python -m src.main --fetch --projects PROJ1 PROJ2
-
-# Exclude certain types of tickets
-python -m src.main --fetch --exclude-labels invalid wontfix
-
-# Limit the number of tickets
-python -m src.main --fetch --max-results 1000
-```
-
-The fetched data is stored in:
-- Raw JIRA data: `data/jira_cache/` (cached by query parameters)
-- Processed data: `data/processed_tickets.pkl`
-- Generated embeddings: `data/embeddings.pkl`
-
-### Step 2: Training Models
-
-Once you have collected your data, you can train different types of models:
-
-```bash
-# Train a linear regression model
-python -m src.main --train linear
-
-# Train a neural network model
-python -m src.main --train neural
-```
-
-Models are saved in the `models/` directory with names like `jira_estimator_linear.pt`.
-
-### Step 3: Experimentation
-
-For running multiple experiments:
-
-1. **Data Preparation**:
-   - Use different project combinations:
-     ```bash
-     python -m src.main --fetch --projects PROJ1 PROJ2
-     python -m src.main --train linear
-     ```
-   - Filter out specific tickets:
-     ```bash
-     python -m src.main --fetch --exclude-labels maintenance bug
-     python -m src.main --train linear
-     ```
-
-2. **Model Comparison**:
-   - Train both models on the same dataset:
-     ```bash
-     # Use --no-cache-update to ensure same data for both models
-     python -m src.main --fetch --no-cache-update
-     python -m src.main --train linear
-     python -m src.main --train neural
-     ```
-
-3. **Data Size Impact**:
-   ```bash
-   # Try different dataset sizes
-   python -m src.main --fetch --max-results 500
-   python -m src.main --train linear
-   
-   python -m src.main --fetch --max-results 2000
-   python -m src.main --train linear
-   ```
-
-### Caching Behavior
-
-- Data is cached based on query parameters (projects, labels, etc.)
-- Each unique combination gets its own cache file
-- Cache is automatically updated with new tickets unless `--no-cache-update` is used
-- Use `--no-cache` to fetch fresh data and ignore cache
+- Automatic time estimation for JIRA tickets using ML
+- Support for both linear regression and neural network models
+- Text embedding generation using OpenAI's API
+- Efficient data caching and incremental updates
+- Cross-validation support for model evaluation
+- Configurable data filtering and processing
 
 ## Project Structure
 
 ```
-jira-ai/
-├── src/
-│   ├── __init__.py
-│   ├── config.py          # Configuration management
-│   ├── data_fetcher.py    # JIRA data fetching
-│   ├── text_processor.py  # Text processing and embeddings
-│   ├── model.py          # ML models
-│   └── main.py           # Main script
-├── data/
-│   ├── jira_cache/       # Cached JIRA data
-│   ├── processed_tickets.pkl  # Current experiment data
-│   └── embeddings.pkl    # Current experiment embeddings
-├── models/              # Trained models
-├── tests/              # Test files
-├── notebooks/          # Jupyter notebooks
-├── requirements.txt    # Python dependencies
-├── .env.example       # Example environment variables
-└── README.md         # Project documentation
+src/
+├── models/
+│   ├── linear_model.py    # Linear regression implementation
+│   └── neural_model.py    # Neural network implementation
+├── data_fetcher.py        # JIRA data fetching and caching
+├── text_processor.py      # Text processing and embeddings
+├── utils.py              # Shared utilities and constants
+└── main.py               # CLI and orchestration
 ```
 
-## Future Enhancements
+## Setup
 
-1. AWS Lambda Deployment
-   - Push trained models to S3
-   - Deploy prediction endpoint as Lambda function
-   - Set up API Gateway
+1. Create and activate a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
 
-2. Model Improvements
-   - Experiment with different embedding models
-   - Add support for more ML architectures
-   - Implement cross-validation
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-3. Monitoring
-   - Add logging and metrics
-   - Set up model performance monitoring
-   - Track embedding API usage
+3. Copy `.env.example` to `.env` and fill in your credentials:
+   ```bash
+   cp .env.example .env
+   ```
+
+   Required environment variables:
+   - `JIRA_URL`: Your JIRA instance URL
+   - `JIRA_EMAIL`: Your JIRA email
+   - `JIRA_API_TOKEN`: Your JIRA API token
+   - `OPENAI_API_KEY`: Your OpenAI API key
+
+## Usage
+
+The main script provides various options for data fetching and model training:
+
+### Basic Usage
+
+Train a linear model with default settings:
+```bash
+python src/main.py --project-keys PROJECT1 PROJECT2
+```
+
+### Data Fetching Options
+
+- `--project-keys`: List of JIRA project keys to include
+- `--exclude-labels`: List of labels to exclude
+- `--max-results`: Maximum number of tickets to fetch (default: 1000)
+- `--include-subtasks`: Include subtasks in data fetch
+- `--no-cache`: Don't use cached JIRA data
+- `--no-cache-update`: Don't update cache with new tickets
+
+### Model Options
+
+- `--model-type`: Choose model type (`linear` or `neural`, default: linear)
+- `--test-size`: Proportion of data for testing (default: 0.2)
+- `--use-cv`: Use cross-validation (linear model only)
+- `--cv-splits`: Number of CV splits (default: 5)
+
+Neural Network Specific:
+- `--epochs`: Training epochs (default: 100)
+- `--batch-size`: Batch size (default: 32)
+- `--learning-rate`: Learning rate (default: 0.001)
+
+### Examples
+
+Train a linear model with cross-validation:
+```bash
+python src/main.py --project-keys PROJECT1 --use-cv --cv-splits 5
+```
+
+Train a neural network:
+```bash
+python src/main.py --project-keys PROJECT1 --model-type neural --epochs 200
+```
+
+Fetch fresh data without using cache:
+```bash
+python src/main.py --project-keys PROJECT1 --no-cache
+```
+
+## Model Performance
+
+The system evaluates models using several metrics:
+- R² (coefficient of determination)
+- MAE (Mean Absolute Error)
+- RMSE (Root Mean Square Error)
+
+For linear models with cross-validation, it also provides standard deviations of these metrics across folds.
+
+## Development
+
+- Models are saved in the `models/` directory with appropriate extensions:
+  - Linear models: `.pkl`
+  - Neural networks: `.pt`
+- JIRA data cache is stored in `data/jira_cache/`
+- Logging level can be controlled with `--log-level`

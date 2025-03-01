@@ -1,76 +1,92 @@
 """Module for processing and embedding text data."""
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import openai
 import tiktoken
-from pandas import DataFrame, Series
+from tqdm import tqdm
 
-from src.config import EMBEDDING_MODEL, OPENAI_API_KEY, TOKEN_LIMIT
-
-openai.api_key = OPENAI_API_KEY
+from src.utils import EMBEDDING_MODELS, MAX_TOKENS
 
 
 class TextProcessor:
     """Class to handle text processing and embedding generation."""
 
-    def __init__(self):
-        """Initialize the tokenizer."""
-        self.tokenizer = tiktoken.get_encoding("cl100k_base")
-
-    def process_ticket_text(self, df: DataFrame) -> Series:
+    def __init__(self, model: str = "ada"):
         """
-        Process ticket text by combining and truncating fields.
+        Initialize the text processor.
 
         Args:
-            df: DataFrame containing ticket data.
+            model: Embedding model to use, must be one of the keys in EMBEDDING_MODELS
+        """
+        if model not in EMBEDDING_MODELS:
+            raise ValueError(f"Model must be one of: {list(EMBEDDING_MODELS.keys())}")
+            
+        self.model = EMBEDDING_MODELS[model]
+        self.token_limit = MAX_TOKENS[self.model]
+        self.tokenizer = tiktoken.get_encoding("cl100k_base")
+
+    def process_batch(
+        self,
+        texts: List[str],
+        batch_size: int = 100,
+        show_progress: bool = True,
+    ) -> np.ndarray:
+        """
+        Process and embed a batch of texts.
+
+        Args:
+            texts: List of texts to process and embed
+            batch_size: Size of batches for embedding generation
+            show_progress: Whether to show progress bar
 
         Returns:
-            Series containing processed text.
+            Array of embeddings
         """
-        return df.apply(
-            lambda row: self._truncate_text(
-                f"{row['summary']} {row['description']} {row['comments']}"
-            ),
-            axis=1,
-        )
+        # Truncate texts
+        processed_texts = [self._truncate_text(text) for text in texts]
+        
+        # Generate embeddings in batches
+        all_embeddings = []
+        iterator = range(0, len(processed_texts), batch_size)
+        if show_progress:
+            iterator = tqdm(iterator, desc="Generating embeddings")
+            
+        for i in iterator:
+            batch = processed_texts[i:i + batch_size]
+            embeddings = self._get_embeddings(batch)
+            all_embeddings.extend(embeddings)
+            
+        return np.array(all_embeddings)
 
     def _truncate_text(self, text: str) -> str:
-        """Truncate text to token limit."""
-        tokens = self.tokenizer.encode(text)
-        return self.tokenizer.decode(tokens[:TOKEN_LIMIT])
+        """
+        Truncate text to token limit.
 
-    def get_embeddings(self, texts: List[str]) -> np.ndarray:
+        Args:
+            text: Text to truncate
+
+        Returns:
+            Truncated text
+        """
+        if not text:
+            return ""
+            
+        tokens = self.tokenizer.encode(text)
+        return self.tokenizer.decode(tokens[:self.token_limit])
+
+    def _get_embeddings(self, texts: List[str]) -> List[List[float]]:
         """
         Generate embeddings for a list of texts.
 
         Args:
-            texts: List of texts to generate embeddings for.
+            texts: List of texts to generate embeddings for
 
         Returns:
-            Array of embeddings.
+            List of embeddings
         """
-        # Process in batches to avoid rate limits
-        batch_size = 100
-        all_embeddings = []
-
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i : i + batch_size]
-            response = openai.Embedding.create(input=batch, model=EMBEDDING_MODEL)
-            batch_embeddings = [item["embedding"] for item in response["data"]]
-            all_embeddings.extend(batch_embeddings)
-
-        return np.array(all_embeddings)
-
-    def process_and_embed(self, df: DataFrame) -> np.ndarray:
-        """
-        Process ticket text and generate embeddings.
-
-        Args:
-            df: DataFrame containing ticket data.
-
-        Returns:
-            Array of embeddings.
-        """
-        processed_texts = self.process_ticket_text(df)
-        return self.get_embeddings(processed_texts.tolist())
+        response = openai.Embedding.create(
+            model=self.model,
+            input=texts,
+        )
+        return [data["embedding"] for data in response["data"]]
