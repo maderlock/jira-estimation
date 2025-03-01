@@ -42,11 +42,30 @@ src/
    cp .env.example .env
    ```
 
-   Required environment variables:
-   - `JIRA_URL`: Your JIRA instance URL
-   - `JIRA_EMAIL`: Your JIRA email
-   - `JIRA_API_TOKEN`: Your JIRA API token
-   - `OPENAI_API_KEY`: Your OpenAI API key
+### Environment Variables
+
+Required:
+- JIRA Configuration:
+  * `JIRA_URL`: Your JIRA instance URL
+  * `JIRA_EMAIL`: Your JIRA email
+  * `JIRA_API_TOKEN`: Your JIRA API token
+- OpenAI Configuration:
+  * `OPENAI_API_KEY`: Your OpenAI API key
+
+Optional:
+- Data Storage:
+  * `DATA_DIR`: Directory for storing data (default: "data")
+- Logging:
+  * `LOG_LEVEL`: Logging level (default: "INFO")
+- Model Configuration:
+  * `EMBEDDING_MODEL`: OpenAI embedding model (default: "ada")
+- Model Parameters:
+  * `DEFAULT_TEST_SIZE`: Train/test split ratio (default: 0.2)
+  * `DEFAULT_CV_SPLITS`: Number of cross-validation folds (default: 5)
+  * `DEFAULT_RANDOM_SEED`: Random seed for reproducibility (default: 42)
+  * `DEFAULT_EPOCHS`: Training epochs for neural network (default: 100)
+  * `DEFAULT_BATCH_SIZE`: Batch size for neural network (default: 32)
+  * `DEFAULT_LEARNING_RATE`: Learning rate for neural network (default: 0.001)
 
 ## Usage
 
@@ -71,14 +90,14 @@ python src/main.py --project-keys PROJECT1 PROJECT2
 ### Model Options
 
 - `--model-type`: Choose model type (`linear` or `neural`, default: linear)
-- `--test-size`: Proportion of data for testing (default: 0.2)
+- `--test-size`: Proportion of data for testing (default: from env)
 - `--use-cv`: Use cross-validation (linear model only)
-- `--cv-splits`: Number of CV splits (default: 5)
+- `--cv-splits`: Number of CV splits (default: from env)
 
 Neural Network Specific:
-- `--epochs`: Training epochs (default: 100)
-- `--batch-size`: Batch size (default: 32)
-- `--learning-rate`: Learning rate (default: 0.001)
+- `--epochs`: Training epochs (default: from env)
+- `--batch-size`: Batch size (default: from env)
+- `--learning-rate`: Learning rate (default: from env)
 
 ### Examples
 
@@ -112,4 +131,5 @@ For linear models with cross-validation, it also provides standard deviations of
   - Linear models: `.pkl`
   - Neural networks: `.pt`
 - JIRA data cache is stored in `data/jira_cache/`
-- Logging level can be controlled with `--log-level`
+- Logging level can be controlled via environment or `--log-level`
+- All model parameters can be configured via environment variables for reproducibility
