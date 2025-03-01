@@ -10,11 +10,13 @@ from src.data_fetcher import JiraDataFetcher
 from src.models.linear_model import LinearEstimator
 from src.models.neural_model import NeuralEstimator
 from src.text_processor import TextProcessor
-from src.utils import setup_logging
+from src.utils import get_model_config, setup_logging
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
+    model_config = get_model_config()
+    
     parser = argparse.ArgumentParser(description="JIRA ticket time estimation")
     # Data fetching arguments
     parser.add_argument("--project-keys", nargs="+", help="JIRA project keys")
@@ -25,13 +27,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-cache-update", action="store_true", help="Don't update cache with new tickets")
     
     # Model arguments
-    parser.add_argument("--test-size", type=float, default=0.2, help="Test set size")
+    parser.add_argument("--test-size", type=float, default=model_config.test_size, help="Test set size")
     parser.add_argument("--model-type", choices=["linear", "neural"], default="linear")
     parser.add_argument("--use-cv", action="store_true", help="Use cross-validation (linear only)")
-    parser.add_argument("--cv-splits", type=int, default=5, help="Number of CV splits")
-    parser.add_argument("--epochs", type=int, default=100, help="Training epochs (neural only)")
-    parser.add_argument("--batch-size", type=int, default=32, help="Batch size (neural only)")
-    parser.add_argument("--learning-rate", type=float, default=0.001, help="Learning rate (neural only)")
+    parser.add_argument("--cv-splits", type=int, default=model_config.cv_splits, help="Number of CV splits")
+    parser.add_argument("--epochs", type=int, default=model_config.epochs, help="Training epochs (neural only)")
+    parser.add_argument("--batch-size", type=int, default=model_config.batch_size, help="Batch size (neural only)")
+    parser.add_argument("--learning-rate", type=float, default=model_config.learning_rate, help="Learning rate (neural only)")
     parser.add_argument("--log-level", default="INFO", help="Logging level")
     return parser.parse_args()
 

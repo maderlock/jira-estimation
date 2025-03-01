@@ -6,45 +6,50 @@ import numpy as np
 import torch
 import torch.nn as nn
 from sklearn.model_selection import train_test_split
+from torch.utils.data import DataLoader, TensorDataset
+from tqdm import tqdm
 
-from src.utils import calculate_metrics
+from src.utils import calculate_metrics, get_model_config
 
 
-class SimpleNeuralNetwork(nn.Module):
-    """Simple neural network for regression."""
+class TimeEstimatorNN(nn.Module):
+    """Neural network architecture for time estimation."""
 
     def __init__(self, input_size: int):
-        """Initialize the network."""
+        """Initialize the network architecture."""
         super().__init__()
-        self.layers = nn.Sequential(
+        self.network = nn.Sequential(
             nn.Linear(input_size, 128),
             nn.ReLU(),
             nn.Dropout(0.2),
             nn.Linear(128, 64),
             nn.ReLU(),
             nn.Dropout(0.2),
-            nn.Linear(64, 1),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 1)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass."""
-        return self.layers(x)
+        """Forward pass through the network."""
+        return self.network(x)
 
 
 class NeuralEstimator:
-    """Neural network model for time estimation."""
+    """Neural network based estimator for time prediction."""
 
     def __init__(self):
         """Initialize the model."""
-        self.model: Optional[SimpleNeuralNetwork] = None
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.model: Optional[TimeEstimatorNN] = None
         self.X_train: Optional[np.ndarray] = None
         self.X_test: Optional[np.ndarray] = None
         self.y_train: Optional[np.ndarray] = None
         self.y_test: Optional[np.ndarray] = None
+        self.config = get_model_config()
 
     def prepare_data(
-        self, X: np.ndarray, y: np.ndarray, test_size: float = 0.2
+        self, X: np.ndarray, y: np.ndarray, test_size: Optional[float] = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Prepare data for training and testing.
@@ -57,19 +62,30 @@ class NeuralEstimator:
         Returns:
             Tuple of (X_train, X_test, y_train, y_test)
         """
+        test_size = test_size if test_size is not None else self.config.test_size
         self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
-            X, y, test_size=test_size, random_state=42
+            X, y, test_size=test_size, random_state=self.config.random_seed
         )
         return self.X_train, self.X_test, self.y_train, self.y_test
+
+    def _create_data_loader(
+        self, X: np.ndarray, y: np.ndarray, batch_size: Optional[int] = None
+    ) -> DataLoader:
+        """Create a PyTorch DataLoader from numpy arrays."""
+        batch_size = batch_size if batch_size is not None else self.config.batch_size
+        X_tensor = torch.FloatTensor(X)
+        y_tensor = torch.FloatTensor(y).reshape(-1, 1)
+        dataset = TensorDataset(X_tensor, y_tensor)
+        return DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     def train(
         self,
         X: np.ndarray,
         y: np.ndarray,
-        test_size: float = 0.2,
-        epochs: int = 100,
-        batch_size: int = 32,
-        learning_rate: float = 0.001,
+        test_size: Optional[float] = None,
+        epochs: Optional[int] = None,
+        batch_size: Optional[int] = None,
+        learning_rate: Optional[float] = None,
     ) -> Dict[str, float]:
         """
         Train the model and return metrics.
@@ -79,37 +95,36 @@ class NeuralEstimator:
             y: Target values (duration_hours)
             test_size: Proportion of data to use for testing
             epochs: Number of training epochs
-            batch_size: Training batch size
-            learning_rate: Learning rate for optimizer
+            batch_size: Batch size for training
+            learning_rate: Learning rate for optimization
 
         Returns:
             Dictionary containing evaluation metrics
         """
+        # Set default values from config
+        epochs = epochs if epochs is not None else self.config.epochs
+        learning_rate = learning_rate if learning_rate is not None else self.config.learning_rate
+        
         # Prepare train/test split if not done already
         if self.X_train is None:
             self.prepare_data(X, y, test_size)
 
         # Initialize model if not done already
         if self.model is None:
-            self.model = SimpleNeuralNetwork(self.X_train.shape[1]).to(self.device)
+            self.model = TimeEstimatorNN(input_size=X.shape[1]).to(self.device)
 
-        # Convert to tensors
-        X_train_tensor = torch.FloatTensor(self.X_train).to(self.device)
-        y_train_tensor = torch.FloatTensor(self.y_train).reshape(-1, 1).to(self.device)
-        X_test_tensor = torch.FloatTensor(self.X_test).to(self.device)
-        y_test_tensor = torch.FloatTensor(self.y_test).reshape(-1, 1).to(self.device)
-
-        # Training setup
+        # Create data loaders
+        train_loader = self._create_data_loader(self.X_train, self.y_train, batch_size)
         criterion = nn.MSELoss()
         optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
 
         # Training loop
-        for epoch in range(epochs):
-            # Mini-batch training
-            for i in range(0, len(X_train_tensor), batch_size):
-                batch_X = X_train_tensor[i:i + batch_size]
-                batch_y = y_train_tensor[i:i + batch_size]
-                
+        self.model.train()
+        for epoch in tqdm(range(epochs), desc="Training"):
+            for batch_X, batch_y in train_loader:
+                batch_X = batch_X.to(self.device)
+                batch_y = batch_y.to(self.device)
+
                 optimizer.zero_grad()
                 outputs = self.model(batch_X)
                 loss = criterion(outputs, batch_y)
@@ -119,17 +134,24 @@ class NeuralEstimator:
         # Evaluation
         self.model.eval()
         with torch.no_grad():
-            y_pred = self.model(X_test_tensor).cpu().numpy().flatten()
-            
+            X_test_tensor = torch.FloatTensor(self.X_test).to(self.device)
+            y_pred = self.model(X_test_tensor).cpu().numpy()
+
         return calculate_metrics(self.y_test, y_pred)
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Make predictions using the trained model."""
+        if self.model is None:
+            raise ValueError("Model must be trained before making predictions")
+
         self.model.eval()
         with torch.no_grad():
             X_tensor = torch.FloatTensor(X).to(self.device)
-            return self.model(X_tensor).cpu().numpy().flatten()
+            predictions = self.model(X_tensor).cpu().numpy()
+        return predictions
 
     def save(self, path: Path) -> None:
         """Save the trained model."""
+        if self.model is None:
+            raise ValueError("No model to save")
         torch.save(self.model.state_dict(), path)

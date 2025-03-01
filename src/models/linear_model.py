@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import KFold, cross_validate, train_test_split
 
-from src.utils import calculate_metrics
+from src.utils import calculate_metrics, get_model_config
 
 
 class LinearEstimator:
@@ -19,9 +19,10 @@ class LinearEstimator:
         self.X_test: Optional[np.ndarray] = None
         self.y_train: Optional[np.ndarray] = None
         self.y_test: Optional[np.ndarray] = None
+        self.config = get_model_config()
 
     def prepare_data(
-        self, X: np.ndarray, y: np.ndarray, test_size: float = 0.2
+        self, X: np.ndarray, y: np.ndarray, test_size: Optional[float] = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Prepare data for training and testing.
@@ -34,8 +35,9 @@ class LinearEstimator:
         Returns:
             Tuple of (X_train, X_test, y_train, y_test)
         """
+        test_size = test_size if test_size is not None else self.config.test_size
         self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
-            X, y, test_size=test_size, random_state=42
+            X, y, test_size=test_size, random_state=self.config.random_seed
         )
         return self.X_train, self.X_test, self.y_train, self.y_test
 
@@ -43,9 +45,9 @@ class LinearEstimator:
         self,
         X: np.ndarray,
         y: np.ndarray,
-        test_size: float = 0.2,
+        test_size: Optional[float] = None,
         use_cv: bool = False,
-        n_splits: int = 5,
+        n_splits: Optional[int] = None,
     ) -> Dict[str, float]:
         """
         Train the model and return metrics.
@@ -61,6 +63,7 @@ class LinearEstimator:
             Dictionary containing evaluation metrics
         """
         if use_cv:
+            n_splits = n_splits if n_splits is not None else self.config.cv_splits
             return self._train_with_cv(X, y, n_splits)
         
         # Prepare train/test split if not done already

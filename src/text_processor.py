@@ -6,13 +6,21 @@ import openai
 import tiktoken
 from tqdm import tqdm
 
-from src.utils import EMBEDDING_MODELS, MAX_TOKENS
+from src.utils import (
+    EMBEDDING_MODELS,
+    MAX_TOKENS,
+    DEFAULT_EMBEDDING_MODEL,
+    get_openai_api_key,
+)
+
+# Set OpenAI API key
+openai.api_key = get_openai_api_key()
 
 
 class TextProcessor:
     """Class to handle text processing and embedding generation."""
 
-    def __init__(self, model: str = "ada"):
+    def __init__(self, model: str = DEFAULT_EMBEDDING_MODEL):
         """
         Initialize the text processor.
 
