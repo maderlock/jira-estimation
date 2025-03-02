@@ -143,13 +143,15 @@ class JiraDataFetcher:
             f"updated_after={updated_after}")
 
         # Build JQL query
-        conditions = ["status = Closed"]
+        conditions = ["status = Closed", "timespent > 0"]
         
         if project_keys:
-            conditions.append(f"project in ({','.join(project_keys)})")
+            project_keys_str = ",".join(project_keys)
+            conditions.append(f"project in ({project_keys_str})")
             
         if exclude_labels:
-            conditions.append(f"labels not in ({','.join(exclude_labels)})")
+            labels_str = ",".join(exclude_labels)
+            conditions.append(f"labels not in ({labels_str})")
             
         if not include_subtasks:
             conditions.append("type != Sub-task")
@@ -158,28 +160,28 @@ class JiraDataFetcher:
             conditions.append(f"updated > '{updated_after}'")
             
         jql = " AND ".join(conditions)
-
+        
         self.logger.debug(f"JQL: {jql}")
         
         # Fetch issues
         issues = self.jira.search_issues(
             jql,
             maxResults=max_results,
-            fields="summary,description,created,updated,resolutiondate,timeoriginalestimate,timespent",
+            fields="summary,description,created,updated,timeoriginalestimate,timespent",
         )
         
         if not issues:
             self.logger.info("No issues found")
             return pd.DataFrame()
-            
+        
         # Process issues
         data = []
         for issue in issues:
             fields = issue.fields
                 
             # Get time estimates in hours
-            original_estimate = fields.timeoriginalestimate / 3600 if fields.timeoriginalestimate else None
-            time_spent = fields.timespent / 3600 if fields.timespent else None
+            original_estimate = fields.timeoriginalestimate / 3600 if fields.timeoriginalestimate else 0
+            time_spent = fields.timespent / 3600 if fields.timespent else 0
             
             # Strip out unnecessary formatting from text fields
             summary = self.text_processor.strip_formatting(getattr(fields, 'summary', ''))

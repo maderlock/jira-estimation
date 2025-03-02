@@ -49,12 +49,28 @@ class LinearEstimator:
         """
         test_size = test_size if test_size is not None else self.config.test_size
         self.logger.info(f"Preparing data with test_size={test_size}")
+        
+        if isinstance(X, list):
+            X = np.array(X)
+        if isinstance(y, list):
+            y = np.array(y)
+            
+        # Validate that we have valid Y values
+        if len(y) == 0:
+            raise ValueError("No training examples provided")
+        if np.any(y <= 0):
+            raise ValueError("Found non-positive time values in training data. All time values must be positive.")
+            
+        self.logger.debug(f"Y values before split: {y.tolist()}")
+        self.logger.debug(f"Y stats before split - min: {y.min()}, max: {y.max()}, mean: {y.mean():.2f}")
         self.logger.debug(f"Input shapes - X: {X.shape}, y: {y.shape}")
         
         self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
             X, y, test_size=test_size, random_state=self.config.random_seed
         )
         
+        self.logger.debug(f"Y values after split - train: {self.y_train.tolist()}, test: {self.y_test.tolist()}")
+        self.logger.debug(f"Y stats after split - train: min: {self.y_train.min()}, max: {self.y_train.max()}, mean: {self.y_train.mean():.2f}, test: min: {self.y_test.min()}, max: {self.y_test.max()}, mean: {self.y_test.mean():.2f}")
         self.logger.debug(f"Train shapes - X: {self.X_train.shape}, y: {self.y_train.shape}")
         self.logger.debug(f"Test shapes - X: {self.X_test.shape}, y: {self.y_test.shape}")
         return self.X_train, self.X_test, self.y_train, self.y_test

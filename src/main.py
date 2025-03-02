@@ -128,6 +128,8 @@ def main(args: argparse.Namespace) -> None:
             return 1
             
         y = df["time_spent"].values
+        logger.debug(f"Time values before model: {y.tolist()}")
+        logger.debug(f"Time stats before model - min: {y.min()}, max: {y.max()}, mean: {y.mean():.2f}")
 
         # Train model
         logger.info(f"Training {args.model_type} model")
@@ -144,9 +146,15 @@ def main(args: argparse.Namespace) -> None:
         metrics = model.train(
             X,
             y,
-            batch_size=args.batch_size,
-            learning_rate=args.learning_rate,
-            epochs=args.epochs
+            **(
+                {
+                    "batch_size": args.batch_size,
+                    "learning_rate": args.learning_rate,
+                    "epochs": args.epochs
+                }
+                if args.model_type == "neural"
+                else {}
+            )
         )
 
         # Save results
