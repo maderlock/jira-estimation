@@ -3,7 +3,7 @@ import logging
 from typing import List, Optional
 
 import numpy as np
-from openai import OpenAI
+from openai import OpenAI, APIError
 import tiktoken
 from tqdm import tqdm
 
@@ -15,6 +15,11 @@ from utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class OpenAIQuotaExceededError(Exception):
+    """Raised when OpenAI API quota is exceeded."""
+    pass
 
 
 class TextProcessor:
@@ -56,6 +61,9 @@ class TextProcessor:
 
         Returns:
             Array of embeddings
+
+        Raises:
+            OpenAIQuotaExceededError: If the OpenAI API quota is exceeded
         """
         # Truncate texts
         processed_texts = [self._truncate_text(text) for text in texts]
@@ -95,6 +103,10 @@ class TextProcessor:
 
         Returns:
             Array of embeddings
+
+        Raises:
+            OpenAIQuotaExceededError: If the OpenAI API quota is exceeded
+            APIError: For other OpenAI API errors
         """
         logger.info(f"Generating embeddings for {len(texts)} texts using {self.model}")
         embeddings = []
@@ -115,8 +127,14 @@ class TextProcessor:
                 batch_embeddings = [item.embedding for item in response.data]
                 embeddings.extend(batch_embeddings)
                 logger.debug(f"Successfully processed {len(batch)} texts in current batch")
+            except APIError as e:
+                if "insufficient_quota" in str(e):
+                    logger.error("OpenAI API quota exceeded")
+                    raise OpenAIQuotaExceededError("OpenAI API quota exceeded. Please check your usage and limits.") from e
+                logger.error(f"OpenAI API error: {str(e)}")
+                raise
             except Exception as e:
-                logger.error(f"Error generating embeddings for batch: {str(e)}")
+                logger.error(f"Unexpected error generating embeddings: {str(e)}")
                 raise
         
         logger.info("Finished generating embeddings")

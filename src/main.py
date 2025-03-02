@@ -1,6 +1,7 @@
 """Main script for JIRA ticket time estimation."""
 import argparse
 import logging
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +10,7 @@ import pandas as pd
 from data_fetcher import JiraDataFetcher
 from models.linear_model import LinearEstimator
 from models.neural_model import NeuralEstimator
-from text_processor import TextProcessor
+from text_processor import TextProcessor, OpenAIQuotaExceededError
 from utils import get_model_config, setup_logging, load_environment
 
 
@@ -51,69 +52,75 @@ def main():
     logger.info("Starting JIRA ticket time estimation")
     logger.debug(f"Arguments: {args}")
 
-    # Initialize components
-    logger.info("Initializing components")
-    data_fetcher = JiraDataFetcher()
-    text_processor = TextProcessor()
-    model = LinearEstimator() if args.model_type == "linear" else NeuralEstimator()
+    try:
+        # Initialize components
+        logger.info("Initializing components")
+        data_fetcher = JiraDataFetcher()
+        text_processor = TextProcessor()
+        model = LinearEstimator() if args.model_type == "linear" else NeuralEstimator()
 
-    # Fetch and process data
-    logger.info("Fetching JIRA tickets")
-    df = data_fetcher.fetch_tickets(
-        project_keys=args.project_keys,
-        max_results=args.max_results,
-        exclude_labels=args.exclude_labels,
-        include_subtasks=args.include_subtasks,
-        use_cache=not args.no_cache,
-        update_cache=not args.no_cache_update,
-        force_update=args.force_update,
-    )
-    
-    if df.empty:
-        logger.error("No tickets found matching criteria")
-        return
+        # Fetch and process data
+        logger.info("Fetching JIRA tickets")
+        df = data_fetcher.fetch_tickets(
+            project_keys=args.project_keys,
+            max_results=args.max_results,
+            exclude_labels=args.exclude_labels,
+            include_subtasks=args.include_subtasks,
+            use_cache=not args.no_cache,
+            update_cache=not args.no_cache_update,
+            force_update=args.force_update,
+        )
+        
+        if df.empty:
+            logger.error("No tickets found matching criteria")
+            return 1
 
-    logger.info("Processing ticket text")
-    # Combine summary and description for embedding
-    texts = [f"{row.summary}\n{row.description}" for _, row in df.iterrows()]
-    embeddings = text_processor.process_batch(texts)
-    y = df["duration_hours"].values
+        logger.info("Processing ticket text")
+        # Combine summary and description for embedding
+        texts = df["summary"] + " " + df["description"].fillna("")
+        try:
+            X = text_processor.get_embeddings(texts)
+        except OpenAIQuotaExceededError as e:
+            logger.error(str(e))
+            logger.error("Unable to continue without embeddings. Please check your OpenAI API quota.")
+            return 1
+            
+        y = df["duration_hours"].values
 
-    # Train model
-    logger.info(f"Training {args.model_type} model")
-    if args.model_type == "linear":
+        # Train model
+        logger.info(f"Training {args.model_type} model")
         metrics = model.train(
-            embeddings,
+            X,
             y,
             test_size=args.test_size,
             use_cv=args.use_cv,
             n_splits=args.cv_splits,
-        )
-    else:
-        metrics = model.train(
-            embeddings,
-            y,
-            test_size=args.test_size,
             epochs=args.epochs,
             batch_size=args.batch_size,
             learning_rate=args.learning_rate,
         )
 
-    # Save results
-    logger.info("Saving results")
-    results_dir = Path("models")
-    results_dir.mkdir(exist_ok=True)
-    
-    model_file = results_dir / f"{args.model_type}_model"
-    model_file = model_file.with_suffix(".pkl" if args.model_type == "linear" else ".pt")
-    model.save(model_file)
-    logger.info(f"Model saved to {model_file}")
+        # Save results
+        logger.info("Saving results")
+        results_dir = Path("results")
+        results_dir.mkdir(exist_ok=True)
+        
+        model_file = results_dir / f"{args.model_type}_model"
+        model_file = model_file.with_suffix(".pkl" if args.model_type == "linear" else ".pt")
+        model.save(model_file)
+        logger.info(f"Model saved to {model_file}")
 
-    # Print metrics
-    logger.info("Final model performance:")
-    for metric, value in metrics.items():
-        logger.info(f"{metric}: {value:.4f}")
+        # Print metrics
+        logger.info("Final model performance:")
+        for metric, value in metrics.items():
+            logger.info(f"{metric}: {value:.4f}")
+            
+        return 0
+            
+    except Exception as e:
+        logger.error(f"Error during execution: {str(e)}", exc_info=True)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
