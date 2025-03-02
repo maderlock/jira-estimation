@@ -6,6 +6,7 @@ import numpy as np
 from openai import OpenAI, APIError
 import tiktoken
 from tqdm import tqdm
+from httpx import Timeout
 
 from utils import (
     EMBEDDING_MODELS,
@@ -39,8 +40,12 @@ class TextProcessor:
         self.token_limit = MAX_TOKENS[self.model]
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
         
-        # Initialize OpenAI client
-        self.client = OpenAI(api_key=get_openai_api_key())
+        # Initialize OpenAI client with custom retry settings
+        self.client = OpenAI(
+            api_key=get_openai_api_key(),
+            max_retries=0,  # Disable retries for quota errors
+            timeout=Timeout(30.0, read=300.0),  # 30s connect, 300s read
+        )
         
         logger.info(f"Initialized TextProcessor with model: {model}")
         logger.debug(f"Token limit: {self.token_limit}")
