@@ -154,7 +154,7 @@ class JiraDataFetcher:
                     f"updated_after={updated_after}")
 
         # Build JQL query
-        conditions = ["status = Done"]
+        conditions = ["status = Closed"]
         
         if project_keys:
             conditions.append(f"project in ({','.join(project_keys)})")
@@ -170,6 +170,8 @@ class JiraDataFetcher:
             conditions.append(f"updated > '{updated_after}'")
             
         jql = " AND ".join(conditions)
+
+        logger.debug(f"JQL: {jql}")
         
         # Fetch issues
         issues = self.jira.search_issues(
