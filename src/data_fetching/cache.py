@@ -114,6 +114,7 @@ class DataCache:
             DataFrame containing cached data
         """
         df = pd.DataFrame()
+        max_results = update_kwargs.get('max_results', 1000) if update_kwargs else 1000
         
         # If cache is disabled or force update is requested, fetch fresh data
         if not use_cache or force_update:
@@ -133,9 +134,15 @@ class DataCache:
         # Try to load from cache
         df = self.get_cached_data(cache_key)
         if df is not None:
+            self.logger.info(f"Retrieved {len(df)} records from cache")
+            
             # Return cached data if updates are disabled
             if not update_cache:
                 self.logger.info("Using cached data without updates")
+                # Ensure we don't exceed max_results from cache
+                if len(df) > max_results:
+                    self.logger.debug(f"Trimming cached data to max_results={max_results}")
+                    df = df.head(max_results)
                 return df
 
             # Check for updates if update_func is provided
@@ -143,21 +150,43 @@ class DataCache:
                 if update_kwargs is None:
                     update_kwargs = {}
                 
-                # Get last update time
+                # Calculate remaining results to fetch
+                remaining_results = max(0, max_results - len(df))
+                
+                # First, check for any new updates since last fetch
                 metadata = self._load_metadata()
                 last_update = metadata.get(cache_key, {}).get('created', "1970-01-01 00:00")
-                update_kwargs["updated_after"] = last_update
                 
-                # Fetch updates
-                new_df = update_func(**update_kwargs)
+                update_kwargs_with_date = dict(update_kwargs)
+                update_kwargs_with_date["updated_after"] = last_update
+                update_kwargs_with_date["max_results"] = max_results
                 
+                new_df = update_func(**update_kwargs_with_date)
                 if new_df is not None and len(new_df) > 0:
-                    self.logger.info(f"Found {len(new_df)} new records")
+                    self.logger.info(f"Found {len(new_df)} new updated records")
                     df = pd.concat([df, new_df], ignore_index=True)
                     df = df.drop_duplicates(subset=["key"], keep="last")
-                    self.save_data(df.to_dict('records'), cache_key, update_kwargs)
-                else:
-                    self.logger.info("No new records found")
+                
+                # If we still need more results, fetch without date filter
+                remaining_results = max(0, max_results - len(df))
+                if remaining_results > 0:
+                    self.logger.info(f"Fetching {remaining_results} more records to reach max_results")
+                    update_kwargs_no_date = dict(update_kwargs)
+                    update_kwargs_no_date["max_results"] = remaining_results
+                    update_kwargs_no_date.pop("updated_after", None)  # Remove date filter
+                    
+                    additional_df = update_func(**update_kwargs_no_date)
+                    if additional_df is not None and len(additional_df) > 0:
+                        self.logger.info(f"Found {len(additional_df)} additional records")
+                        df = pd.concat([df, additional_df], ignore_index=True)
+                        df = df.drop_duplicates(subset=["key"], keep="last")
+                
+                # Ensure combined results don't exceed max_results
+                if len(df) > max_results:
+                    self.logger.debug(f"Trimming combined data to max_results={max_results}")
+                    df = df.head(max_results)
+                    
+                self.save_data(df.to_dict('records'), cache_key, update_kwargs)
         
         # If no cached data and updates allowed, fetch fresh
         elif update_func:

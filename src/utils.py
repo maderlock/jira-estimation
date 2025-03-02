@@ -41,6 +41,7 @@ class JiraConfig(NamedTuple):
 
 class ModelConfig(NamedTuple):
     """Model configuration settings."""
+    model_type: str
     test_size: float
     cv_splits: int
     random_seed: int
@@ -74,6 +75,7 @@ def get_openai_api_key() -> str:
 def get_model_config() -> ModelConfig:
     """Get model configuration from environment variables."""
     return ModelConfig(
+        model_type=os.getenv("MODEL_TYPE", "linear"),
         test_size=float(os.getenv("DEFAULT_TEST_SIZE", "0.2")),
         cv_splits=int(os.getenv("DEFAULT_CV_SPLITS", "5")),
         random_seed=int(os.getenv("DEFAULT_RANDOM_SEED", "42")),

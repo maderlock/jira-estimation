@@ -152,10 +152,15 @@ class JiraDataFetcher:
         Returns:
             DataFrame containing issue data
         """
+        # Validate max_results
+        if max_results <= 0:
+            self.logger.warning("Invalid max_results value, using default of 1000")
+            max_results = 1000
+        
         self.logger.debug(
             f"Fetching issues with: projects={project_keys}, "
             f"exclude_labels={exclude_labels}, include_subtasks={include_subtasks}, "
-            f"updated_after={updated_after}")
+            f"updated_after={updated_after}, max_results={max_results}")
 
         # Build JQL query
         conditions = ["status = Closed", "timespent > 0"]
@@ -174,7 +179,8 @@ class JiraDataFetcher:
         if updated_after:
             conditions.append(f"updated > '{updated_after}'")
             
-        jql = " AND ".join(conditions)
+        # Add ORDER BY to ensure consistent results when paginating
+        jql = " AND ".join(conditions) + " ORDER BY updated DESC"
         
         self.logger.debug(f"JQL: {jql}")
         
@@ -214,5 +220,10 @@ class JiraDataFetcher:
             })
 
             self.logger.debug(f"Fetched issue {issue.key}: {data[-1]}")
+            
+            # Break if we've reached max_results
+            if len(data) >= max_results:
+                self.logger.debug(f"Reached max_results limit of {max_results}")
+                break
             
         return pd.DataFrame(data)

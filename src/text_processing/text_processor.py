@@ -58,38 +58,91 @@ class TextProcessor:
     def process_batch(
         self,
         texts: List[str],
+        queries: List[str],
         metadata: Optional[List[Dict]] = None,
         batch_size: int = 100,
+        chunk_overlap: int = 100,
+        temperature: float = 1.0,
         show_progress: bool = True,
     ) -> np.ndarray:
         """
-        Process and embed a batch of texts.
+        Process and embed a batch of texts using chunking and attention.
 
         Args:
             texts: List of texts to process and embed
-            metadata: Optional list of metadata dicts with 'key' and 'summary' for each text
+            queries: List of query texts (e.g. ticket summaries) for attention
+            metadata: Optional list of metadata dicts for each text
             batch_size: Size of batches for embedding generation
+            chunk_overlap: Token overlap between chunks
+            temperature: Temperature for attention mechanism
             show_progress: Whether to show progress bar
 
         Returns:
             Array of embeddings
         """
-        # Truncate texts
-        processed_texts = [self._truncate_text(text) for text in texts]
-        
-        # Generate embeddings in batches
-        all_embeddings = []
-        iterator = range(0, len(processed_texts), batch_size)
-        if show_progress:
-            iterator = tqdm(iterator, desc="Generating embeddings")
+        if len(texts) != len(queries):
+            raise ValueError("Number of texts and queries must match")
             
+        # First get all query embeddings in one batch
+        self.logger.info("Getting query embeddings")
+        query_embeddings = self.get_embeddings(queries, metadata=metadata)
+        
+        # Process all texts to get chunks
+        self.logger.info("Chunking texts")
+        all_chunks = []
+        chunk_indices = []  # Track which chunks belong to which text
+        all_chunk_metadata = []
+        
+        for i, text in enumerate(texts):
+            chunks = self.chunk_text(text, overlap=chunk_overlap)
+            if not chunks:
+                # Empty text, use query directly
+                all_chunks.append(queries[i])
+                chunk_indices.append([len(all_chunks) - 1])
+                all_chunk_metadata.append(metadata[i] if metadata else None)
+                continue
+                
+            start_idx = len(all_chunks)
+            all_chunks.extend(chunks)
+            chunk_indices.append(list(range(start_idx, len(all_chunks))))
+            
+            if metadata:
+                # Create metadata for each chunk
+                chunk_meta = [
+                    {**metadata[i], 'chunk_index': j, 'total_chunks': len(chunks)}
+                    for j in range(len(chunks))
+                ]
+                all_chunk_metadata.extend(chunk_meta)
+        
+        # Get embeddings for all chunks in batches
+        self.logger.info(f"Getting embeddings for {len(all_chunks)} chunks")
+        iterator = range(0, len(all_chunks), batch_size)
+        if show_progress:
+            iterator = tqdm(iterator, desc="Processing chunks")
+            
+        all_embeddings = []
         for i in iterator:
-            batch_texts = processed_texts[i:i + batch_size]
-            batch_meta = metadata[i:i + batch_size] if metadata else None
-            embeddings = self.get_embeddings(batch_texts, batch_meta)
+            batch_chunks = all_chunks[i:i + batch_size]
+            batch_meta = all_chunk_metadata[i:i + batch_size] if all_chunk_metadata else None
+            embeddings = self.get_embeddings(batch_chunks, metadata=batch_meta)
             all_embeddings.extend(embeddings)
             
-        return np.array(all_embeddings)
+        # Combine chunks using attention
+        self.logger.info("Combining chunks with attention")
+        final_embeddings = []
+        for i, indices in enumerate(chunk_indices):
+            chunk_embs = [all_embeddings[j] for j in indices]
+            if len(chunk_embs) == 1:
+                final_embeddings.append(chunk_embs[0])
+            else:
+                combined = self.combine_embeddings_with_attention(
+                    chunk_embs,
+                    query_embeddings[i],
+                    temperature=temperature
+                )
+                final_embeddings.append(combined)
+                
+        return np.array(final_embeddings)
 
     def _truncate_text(self, text: str) -> str:
         """Truncate text to fit within token limit."""
@@ -102,6 +155,141 @@ class TextProcessor:
         
         self.logger.debug(f"Truncating text from {len(tokens)} tokens to {self.token_limit}")
         return self.tokenizer.decode(tokens[:self.token_limit])
+
+    def chunk_text(self, text: str, overlap: int = 100) -> List[str]:
+        """
+        Split text into overlapping chunks that fit within token limit.
+        
+        Args:
+            text: Text to split into chunks
+            overlap: Number of tokens to overlap between chunks
+            
+        Returns:
+            List of text chunks
+        """
+        if not text or text.isspace():
+            self.logger.warning("Empty or whitespace-only text provided to chunk_text")
+            return []
+            
+        # Clean text
+        text = text.strip()
+        if not text:
+            self.logger.warning("Text was empty after stripping whitespace")
+            return []
+            
+        tokens = self.tokenizer.encode(text)
+        if len(tokens) <= self.token_limit:
+            return [text]
+        
+        chunks = []
+        chunk_size = self.token_limit
+        start = 0
+        
+        while start < len(tokens):
+            end = min(start + chunk_size, len(tokens))
+            chunk = self.tokenizer.decode(tokens[start:end])
+            if chunk.strip():  # Only add non-empty chunks
+                chunks.append(chunk)
+            # Move start position accounting for overlap
+            start = end - overlap if end < len(tokens) else len(tokens)
+        
+        self.logger.debug(f"Split text into {len(chunks)} chunks with {overlap} token overlap")
+        return chunks
+        
+    def combine_embeddings_with_attention(
+        self, 
+        embeddings: List[np.ndarray], 
+        query_embedding: np.ndarray,
+        temperature: float = 1.0
+    ) -> np.ndarray:
+        """
+        Combine multiple embeddings using attention mechanism.
+        
+        Args:
+            embeddings: List of embeddings to combine
+            query_embedding: Query embedding to calculate attention scores against
+            temperature: Temperature for softmax (higher = more uniform weights)
+            
+        Returns:
+            Combined embedding
+        """
+        if not embeddings:
+            raise ValueError("No embeddings to combine")
+        if len(embeddings) == 1:
+            return embeddings[0]
+            
+        # Calculate cosine similarities
+        similarities = []
+        query_norm = np.linalg.norm(query_embedding)
+        
+        for emb in embeddings:
+            similarity = np.dot(emb, query_embedding) / (np.linalg.norm(emb) * query_norm)
+            similarities.append(similarity)
+        
+        # Apply temperature scaling and softmax
+        scaled_similarities = np.array(similarities) / temperature
+        weights = np.exp(scaled_similarities) / np.sum(np.exp(scaled_similarities))
+        
+        # Weighted combination
+        stacked = np.stack(embeddings)
+        combined = np.average(stacked, axis=0, weights=weights)
+        
+        self.logger.debug(f"Combined {len(embeddings)} embeddings with attention weights: {weights}")
+        return combined
+
+    def process_text(
+        self, 
+        text: str, 
+        query: str,
+        metadata: Optional[Dict] = None,
+        chunk_overlap: int = 100,
+        temperature: float = 1.0
+    ) -> np.ndarray:
+        """
+        Process a single text, using chunking and attention for long content.
+        
+        Args:
+            text: Main text to process
+            query: Query text (e.g. ticket summary) for attention mechanism
+            metadata: Optional metadata for caching
+            chunk_overlap: Token overlap between chunks
+            temperature: Temperature for attention mechanism
+            
+        Returns:
+            Final embedding
+        """
+        # Handle empty text
+        if not text or text.isspace():
+            self.logger.warning(f"Empty text received for query: {query[:100]}...")
+            # Use query embedding as fallback
+            return self.get_embeddings([query], metadata=[metadata] if metadata else None)[0]
+        
+        # Get query embedding first
+        query_emb = self.get_embeddings([query], metadata=[metadata] if metadata else None)[0]
+        
+        # Split into chunks if needed
+        chunks = self.chunk_text(text, overlap=chunk_overlap)
+        if not chunks:
+            self.logger.warning(f"No valid chunks found for text. Using query embedding as fallback. Query: {query[:100]}...")
+            return query_emb
+        
+        # Get embeddings for all chunks
+        chunk_metadata = None
+        if metadata:
+            # Create metadata for each chunk
+            chunk_metadata = [
+                {**metadata, 'chunk_index': i, 'total_chunks': len(chunks)}
+                for i in range(len(chunks))
+            ]
+        
+        chunk_embeddings = self.get_embeddings(chunks, metadata=chunk_metadata)
+        
+        # Combine using attention
+        return self.combine_embeddings_with_attention(
+            chunk_embeddings,
+            query_emb,
+            temperature=temperature
+        )
 
     def get_embeddings(
         self,

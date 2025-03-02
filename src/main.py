@@ -33,7 +33,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force-update", action="store_true", help="Force full update of cached data")
     # Model arguments
     parser.add_argument("--test-size", type=float, default=model_config.test_size, help="Test set size")
-    parser.add_argument("--model-type", choices=["linear", "neural"], default="linear")
+    parser.add_argument("--model-type", choices=["linear", "neural"], default=model_config.model_type,
+                      help="Model type (linear or neural)")
     parser.add_argument("--use-cv", action="store_true", help="Use cross-validation (linear only)")
     parser.add_argument("--cv-splits", type=int, default=model_config.cv_splits, help="Number of CV splits")
     parser.add_argument("--epochs", type=int, default=model_config.epochs, help="Training epochs (neural only)")
@@ -113,15 +114,27 @@ def main(args: argparse.Namespace) -> None:
             return 1
 
         logger.info("Processing ticket text")
-        # Combine summary and description for embedding
-        texts = df["summary"] + " " + df["description"].fillna("")
+        # Get descriptions and summaries
+        descriptions = df["description"].fillna("").astype(str)
+        summaries = df["summary"].fillna("").astype(str)
+        
+        # Log some stats about the text data
+        desc_lengths = descriptions.str.len()
+        logger.info(f"Description length stats - min: {desc_lengths.min()}, max: {desc_lengths.max()}, mean: {desc_lengths.mean():.1f}")
+        logger.info(f"Empty descriptions: {(desc_lengths == 0).sum()}/{len(df)}")
+        
         try:
             # Create metadata for caching
             metadata = [
                 {"key": row.key, "summary": row.summary}
                 for _, row in df.iterrows()
             ]
-            X = text_processor.get_embeddings(texts, metadata=metadata)
+            X = text_processor.process_batch(
+                texts=descriptions.tolist(),
+                queries=summaries.tolist(),  # Use summaries as queries
+                metadata=metadata,
+                show_progress=True
+            )
         except Exception as e:
             # Output error message and traceback
             logger.error(str(e))
@@ -148,16 +161,14 @@ def main(args: argparse.Namespace) -> None:
         metrics = model.train(
             X,
             y,
-            **(
-                {
-                    "batch_size": args.batch_size,
-                    "learning_rate": args.learning_rate,
-                    "epochs": args.epochs
-                }
-                if args.model_type == "neural"
-                else {}
-            )
+            test_size=args.test_size,
+            use_cv=args.use_cv,
+            n_splits=args.cv_splits if args.model_type == "linear" else None,
+            **({"epochs": args.epochs, "batch_size": args.batch_size} if args.model_type == "neural" else {})
         )
+        
+        # Get test predictions for examples
+        X_train, X_test, y_train, y_test, train_indices, test_indices = model.get_train_test_data()
 
         # Save results
         logger.info("Saving results")
@@ -166,8 +177,18 @@ def main(args: argparse.Namespace) -> None:
         
         model_file = results_dir / f"{args.model_type}_model"
         model_file = model_file.with_suffix(".pkl" if args.model_type == "linear" else ".pt")
+        
+        logger.info(f"Saving model to {model_file}")
         model.save(model_file)
-        logger.info(f"Model saved to {model_file}")
+        
+        # Show example predictions
+        logger.info("\nExample Predictions from Test Set:")
+        model.show_examples(
+            titles=df.loc[test_indices, "summary"].tolist(),
+            descriptions=df.loc[test_indices, "description"].tolist(),
+            y_true=y_test,
+            y_pred=model.predict(X_test)
+        )
 
         # Print metrics
         logger.info("Final model performance:")

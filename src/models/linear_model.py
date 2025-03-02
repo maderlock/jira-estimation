@@ -1,7 +1,7 @@
 """Linear regression model implementation."""
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 
 import numpy as np
 from sklearn.linear_model import LinearRegression
@@ -65,9 +65,15 @@ class LinearEstimator:
         self.logger.debug(f"Y stats before split - min: {y.min()}, max: {y.max()}, mean: {y.mean():.2f}")
         self.logger.debug(f"Input shapes - X: {X.shape}, y: {y.shape}")
         
-        self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
-            X, y, test_size=test_size, random_state=self.config.random_seed
+        indices = np.arange(len(X))
+        self.X_train, self.X_test, self.y_train, self.y_test, self._train_indices, self._test_indices = train_test_split(
+            X, y, indices, test_size=test_size, random_state=self.config.random_seed
         )
+        
+        # Fit and transform the training data
+        self.X_train = self.scaler.fit_transform(self.X_train)
+        # Transform test data using training statistics
+        self.X_test = self.scaler.transform(self.X_test)
         
         self.logger.debug(f"Y values after split - train: {self.y_train.tolist()}, test: {self.y_test.tolist()}")
         self.logger.debug(f"Y stats after split - train: min: {self.y_train.min()}, max: {self.y_train.max()}, mean: {self.y_train.mean():.2f}, test: min: {self.y_test.min()}, max: {self.y_test.max()}, mean: {self.y_test.mean():.2f}")
@@ -156,11 +162,63 @@ class LinearEstimator:
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Make predictions using the trained model."""
-        self.logger.debug(f"Making predictions for {len(X)} samples")
-        return self.model.predict(X)
+        if not isinstance(X, np.ndarray):
+            X = np.array(X)
+        return self.model.predict(self.scaler.transform(X))
+
+    def show_examples(self, titles: List[str], descriptions: List[str], y_true: np.ndarray, y_pred: np.ndarray, n_examples: int = 3) -> None:
+        """
+        Show best, median and worst predictions.
+        
+        Args:
+            titles: List of ticket titles
+            descriptions: List of ticket descriptions
+            y_true: True values
+            y_pred: Predicted values
+            n_examples: Number of examples to show (default 3: best, median, worst)
+        """
+        # Get absolute errors
+        errors = np.abs(y_true - y_pred)
+        
+        # Get indices for best, median and worst predictions
+        best_idx = np.argmin(errors)
+        worst_idx = np.argmax(errors)
+        median_idx = np.argsort(errors)[len(errors)//2]
+        
+        example_indices = [best_idx, median_idx, worst_idx]
+        labels = ["Best", "Median", "Worst"]
+        
+        self.logger.info("\nExample Predictions:")
+        for idx, label in zip(example_indices, labels):
+            # Convert hours to hours and minutes
+            true_hours = int(y_true[idx])
+            true_mins = int((y_true[idx] - true_hours) * 60)
+            pred_hours = int(y_pred[idx])
+            pred_mins = int((y_pred[idx] - pred_hours) * 60)
+            
+            # Get first few lines of description
+            desc_preview = "\n".join(descriptions[idx].split("\n")[:3])
+            
+            self.logger.info(f"\n{label} Prediction:")
+            self.logger.info(f"Title: {titles[idx]}")
+            self.logger.info(f"Description (first 3 lines):\n{desc_preview}")
+            self.logger.info(f"True time: {true_hours}h{true_mins:02d}m")
+            self.logger.info(f"Predicted: {pred_hours}h{pred_mins:02d}m")
+            self.logger.info(f"Error: {errors[idx]:.2f} hours")
 
     def save(self, path: Path) -> None:
         """Save the trained model."""
         self.logger.info(f"Saving model to {path}")
         import joblib
         joblib.dump(self.model, path)
+
+    def get_train_test_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Get the train/test split data.
+        
+        Returns:
+            Tuple of (X_train, X_test, y_train, y_test, train_indices, test_indices)
+        """
+        if not hasattr(self, '_train_indices') or not hasattr(self, '_test_indices'):
+            raise RuntimeError("Model has not been trained yet. Call train() first.")
+        return self.X_train, self.X_test, self.y_train, self.y_test, self._train_indices, self._test_indices

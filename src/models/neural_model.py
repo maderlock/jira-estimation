@@ -1,7 +1,7 @@
 """Neural network model implementation."""
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 
 import numpy as np
 import torch
@@ -190,11 +190,55 @@ class NeuralEstimator:
             raise ValueError("Model must be trained before making predictions")
 
         self.logger.debug(f"Making predictions for {len(X)} samples")
+        if not isinstance(X, np.ndarray):
+            X = np.array(X)
+        X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
         self.model.eval()
         with torch.no_grad():
-            X_tensor = torch.FloatTensor(X).to(self.device)
-            predictions = self.model(X_tensor).cpu().numpy()
-        return predictions
+            return self.model(X_tensor).cpu().numpy().flatten()
+
+    def show_examples(self, X_test: np.ndarray, y_test: np.ndarray, titles: List[str], descriptions: List[str], n_examples: int = 3) -> None:
+        """
+        Show example predictions from test set.
+        
+        Args:
+            X_test: Test features
+            y_test: True test values
+            titles: List of ticket titles
+            descriptions: List of ticket descriptions
+            n_examples: Number of examples to show (default 3: best, median, worst)
+        """
+        # Get predictions
+        y_pred = self.predict(X_test)
+        
+        # Calculate absolute errors
+        errors = np.abs(y_test - y_pred)
+        
+        # Get indices for best, median and worst predictions
+        best_idx = np.argmin(errors)
+        worst_idx = np.argmax(errors)
+        median_idx = np.argsort(errors)[len(errors)//2]
+        
+        example_indices = [best_idx, median_idx, worst_idx]
+        labels = ["Best", "Median", "Worst"]
+        
+        self.logger.info("\nExample Predictions:")
+        for idx, label in zip(example_indices, labels):
+            # Convert hours to hours and minutes
+            true_hours = int(y_test[idx])
+            true_mins = int((y_test[idx] - true_hours) * 60)
+            pred_hours = int(y_pred[idx])
+            pred_mins = int((y_pred[idx] - pred_hours) * 60)
+            
+            # Get first few lines of description
+            desc_preview = "\n".join(descriptions[idx].split("\n")[:3])
+            
+            self.logger.info(f"\n{label} Prediction:")
+            self.logger.info(f"Title: {titles[idx]}")
+            self.logger.info(f"Description (first 3 lines):\n{desc_preview}")
+            self.logger.info(f"True time: {true_hours}h{true_mins:02d}m")
+            self.logger.info(f"Predicted: {pred_hours}h{pred_mins:02d}m")
+            self.logger.info(f"Error: {errors[idx]:.2f} hours")
 
     def save(self, path: Path) -> None:
         """Save the trained model."""
