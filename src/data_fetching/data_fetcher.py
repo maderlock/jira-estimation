@@ -42,25 +42,24 @@ class JiraDataFetcher:
         self.logger = logger or logging.getLogger(__name__)
         self.logger.info("Initialized JIRA client")
 
-    def _get_cache_key(self, **kwargs) -> str:
+    def _get_cache_key(self, project_keys: List[str], **kwargs) -> str:
         """
-        Generate a cache key from keyword arguments.
+        Generate a cache key for the given parameters.
+        Only uses essential parameters that affect the data content.
         
         Args:
-            **kwargs: Key-value pairs to generate cache key from
+            project_keys: List of project keys to fetch tickets from
+            **kwargs: Additional parameters (ignored for caching)
             
         Returns:
             Cache key string
         """
-        components = []
-        for key, value in sorted(kwargs.items()):
-            if value:
-                if isinstance(value, (list, tuple, set)):
-                    value_str = "_".join(sorted(str(v) for v in value))
-                else:
-                    value_str = str(value)
-                components.append(f"{key}={value_str}")
-        return "_".join(components) if components else "all"
+        # Only use project keys for cache key to maximize cache reuse
+        key_parts = []
+        if project_keys:
+            key_parts.append(f"projects={','.join(sorted(project_keys))}")
+            
+        return "_".join(key_parts) if key_parts else "all_projects"
 
     def fetch_tickets(
         self,
@@ -87,17 +86,33 @@ class JiraDataFetcher:
         Returns:
             DataFrame containing ticket data
         """
-        # Generate cache key from parameters
-        cache_key = self._get_cache_key(
-            project_keys=project_keys,
-            max_results=max_results,
-            exclude_labels=exclude_labels,
-            include_subtasks=include_subtasks,
-            use_cache=use_cache,
-            update_cache=update_cache,
-            force_update=force_update,
-        )
+        self.logger.info(
+            f"Fetching tickets for projects={project_keys}, "
+            f"max_results={max_results}, exclude_labels={exclude_labels}, "
+            f"include_subtasks={include_subtasks}, use_cache={use_cache}, "
+            f"update_cache={update_cache}, force_update={force_update}")
+
+        # Get cache key using only essential parameters
+        cache_key = self._get_cache_key(project_keys)
         
+        # Try to load from cache
+        if use_cache and not force_update:
+            df = self.cache.load(
+                cache_key,
+                self._fetch_issues,
+                {
+                    "project_keys": project_keys,
+                    "max_results": max_results,
+                    "exclude_labels": exclude_labels,
+                    "include_subtasks": include_subtasks,
+                },
+                use_cache=use_cache,
+                update_cache=update_cache,
+                force_update=force_update
+            )
+            if df is not None and len(df) > 0:
+                return df
+
         # Prepare fetch parameters
         fetch_kwargs = {
             "project_keys": project_keys,

@@ -44,6 +44,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hidden-size", type=int, default=128, help="Hidden size (neural only)")
     parser.add_argument("--num-layers", type=int, default=1, help="Number of layers (neural only)")
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate (neural only)")
+    parser.add_argument("--data-dir", type=str, default="data",
+                      help="Directory for data storage (cache, embeddings, results)")
     return parser.parse_args()
 
 
@@ -61,7 +63,7 @@ def main(args: argparse.Namespace) -> None:
     logger = setup_logging(args.log_level)
     
     # Setup data directories
-    data_dir = Path(os.getenv("DATA_DIR", "data"))
+    data_dir = Path(args.data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     
     # Initialize caches and processors
@@ -159,8 +161,8 @@ def main(args: argparse.Namespace) -> None:
 
         # Save results
         logger.info("Saving results")
-        results_dir = Path("results")
-        results_dir.mkdir(exist_ok=True)
+        results_dir = Path(args.data_dir) / "results"
+        results_dir.mkdir(exist_ok=True, parents=True)
         
         model_file = results_dir / f"{args.model_type}_model"
         model_file = model_file.with_suffix(".pkl" if args.model_type == "linear" else ".pt")
