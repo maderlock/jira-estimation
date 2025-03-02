@@ -2,6 +2,7 @@
 import logging
 import re
 from typing import Dict, List, Optional
+import pandas as pd
 
 import numpy as np
 from openai import OpenAI, APIError
@@ -121,6 +122,9 @@ class TextProcessor:
             OpenAIQuotaExceededError: If the OpenAI API quota is exceeded
             APIError: For other OpenAI API errors
         """
+        if isinstance(texts, pd.Series):
+            texts = texts.tolist()
+            
         if not texts:
             return []
             
