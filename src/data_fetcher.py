@@ -7,6 +7,7 @@ import pandas as pd
 from jira import JIRA
 
 from cache import DataCache
+from text_processor import TextProcessor
 from utils import get_jira_config
 
 logger = logging.getLogger(__name__)
@@ -135,29 +136,26 @@ class JiraDataFetcher:
         data = []
         for issue in issues:
             fields = issue.fields
-            
-            # Calculate duration in hours
-            if fields.resolutiondate and fields.created:
-                start = datetime.strptime(fields.created[:19], "%Y-%m-%dT%H:%M:%S")
-                end = datetime.strptime(fields.resolutiondate[:19], "%Y-%m-%dT%H:%M:%S")
-                duration_hours = (end - start).total_seconds() / 3600
-            else:
-                duration_hours = None
                 
             # Get time estimates in hours
             original_estimate = fields.timeoriginalestimate / 3600 if fields.timeoriginalestimate else None
             time_spent = fields.timespent / 3600 if fields.timespent else None
             
+            # Strip out unnecessary formatting from text fields
+            summary = TextProcessor.strip_formatting(getattr(fields, 'summary', ''))
+            description = TextProcessor.strip_formatting(getattr(fields, 'description', ''))
+
+            # Append data
             data.append({
                 "key": issue.key,
-                "summary": fields.summary,
-                "description": fields.description,
+                "summary": summary,
+                "description": description,
                 "created": fields.created,
                 "updated": fields.updated,
-                "resolved": fields.resolutiondate,
-                "duration_hours": duration_hours,
                 "original_estimate": original_estimate,
                 "time_spent": time_spent,
             })
+
+            logging.debug(f"Fetched issue {issue.key}: {data[-1]}")
             
         return pd.DataFrame(data)
