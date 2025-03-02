@@ -3,6 +3,7 @@ import argparse
 import logging
 import os
 import sys
+import traceback
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -105,7 +106,7 @@ def main(args: argparse.Namespace) -> None:
             force_update=args.force_update,
         )
         
-        if df.empty:
+        if len(df) == 0:
             logger.error("No tickets found matching criteria")
             return 1
 
@@ -120,7 +121,9 @@ def main(args: argparse.Namespace) -> None:
             ]
             X = text_processor.get_embeddings(texts, metadata=metadata)
         except Exception as e:
+            # Output error message and traceback
             logger.error(str(e))
+            logger.error(traceback.format_exc())
             logger.error("Unable to continue without embeddings.")
             return 1
             

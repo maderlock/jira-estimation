@@ -42,6 +42,26 @@ class JiraDataFetcher:
         self.logger = logger or logging.getLogger(__name__)
         self.logger.info("Initialized JIRA client")
 
+    def _get_cache_key(self, **kwargs) -> str:
+        """
+        Generate a cache key from keyword arguments.
+        
+        Args:
+            **kwargs: Key-value pairs to generate cache key from
+            
+        Returns:
+            Cache key string
+        """
+        components = []
+        for key, value in sorted(kwargs.items()):
+            if value:
+                if isinstance(value, (list, tuple, set)):
+                    value_str = "_".join(sorted(str(v) for v in value))
+                else:
+                    value_str = str(value)
+                components.append(f"{key}={value_str}")
+        return "_".join(components) if components else "all"
+
     def fetch_tickets(
         self,
         project_keys: Optional[List[str]] = None,
@@ -68,10 +88,14 @@ class JiraDataFetcher:
             DataFrame containing ticket data
         """
         # Generate cache key from parameters
-        cache_key = self.cache.get_cache_key(
-            projects=project_keys,
-            exclude=exclude_labels,
-            subtasks=include_subtasks
+        cache_key = self._get_cache_key(
+            project_keys=project_keys,
+            max_results=max_results,
+            exclude_labels=exclude_labels,
+            include_subtasks=include_subtasks,
+            use_cache=use_cache,
+            update_cache=update_cache,
+            force_update=force_update,
         )
         
         # Prepare fetch parameters

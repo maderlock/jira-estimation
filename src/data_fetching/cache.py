@@ -40,26 +40,6 @@ class DataCache:
         """Save cache metadata."""
         self.metadata_file.write_text(json.dumps(metadata, indent=2))
 
-    def get_cache_key(self, **kwargs) -> str:
-        """
-        Generate a cache key from keyword arguments.
-        
-        Args:
-            **kwargs: Key-value pairs to generate cache key from
-            
-        Returns:
-            Cache key string
-        """
-        components = []
-        for key, value in sorted(kwargs.items()):
-            if value:
-                if isinstance(value, (list, tuple, set)):
-                    value_str = "_".join(sorted(str(v) for v in value))
-                else:
-                    value_str = str(value)
-                components.append(f"{key}={value_str}")
-        return "_".join(components) if components else "all"
-
     def get_cached_data(self, query_hash: str) -> Optional[pd.DataFrame]:
         """
         Get cached data for a query.
@@ -146,7 +126,7 @@ class DataCache:
                 update_kwargs = {}
             df = update_func(**update_kwargs)
             
-            if df is not None and not df.empty:
+            if df is not None and len(df) > 0:
                 self.save_data(df.to_dict('records'), cache_key, update_kwargs)
             return df
         
@@ -171,7 +151,7 @@ class DataCache:
                 # Fetch updates
                 new_df = update_func(**update_kwargs)
                 
-                if new_df is not None and not new_df.empty:
+                if new_df is not None and len(new_df) > 0:
                     self.logger.info(f"Found {len(new_df)} new records")
                     df = pd.concat([df, new_df], ignore_index=True)
                     df = df.drop_duplicates(subset=["key"], keep="last")
@@ -186,7 +166,7 @@ class DataCache:
                 update_kwargs = {}
             df = update_func(**update_kwargs)
             
-            if df is not None and not df.empty:
+            if df is not None and len(df) > 0:
                 self.save_data(df.to_dict('records'), cache_key, update_kwargs)
         
         return df

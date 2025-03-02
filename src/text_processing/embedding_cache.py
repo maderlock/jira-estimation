@@ -80,7 +80,11 @@ class EmbeddingCache:
             cache_file = self.cache_dir / f"{doc_id}.parquet"
             if cache_file.exists():
                 df = pd.read_parquet(cache_file)
-                cached_embeddings.append(df['embedding'].values[0])
+                if len(df) > 0:
+                    cached_embeddings.append(df['embedding'].values[0])
+                else:
+                    cached_embeddings.append(None)
+                    missing_indices.append(i)
             else:
                 cached_embeddings.append(None)
                 missing_indices.append(i)
