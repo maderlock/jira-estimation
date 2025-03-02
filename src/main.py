@@ -79,13 +79,18 @@ def main():
         # Combine summary and description for embedding
         texts = df["summary"] + " " + df["description"].fillna("")
         try:
-            X = text_processor.get_embeddings(texts)
+            # Create metadata for caching
+            metadata = [
+                {"key": row.key, "summary": row.summary}
+                for _, row in df.iterrows()
+            ]
+            X = text_processor.get_embeddings(texts, metadata=metadata)
         except OpenAIQuotaExceededError as e:
             logger.error(str(e))
             logger.error("Unable to continue without embeddings. Please check your OpenAI API quota.")
             return 1
             
-        y = df["duration_hours"].values
+        y = df["time_spent"].values
 
         # Train model
         logger.info(f"Training {args.model_type} model")

@@ -1,9 +1,15 @@
 """Module for processing and embedding text data."""
+import hashlib
+import json
 import logging
-from typing import List, Optional
+from pathlib import Path
 import re
+from typing import Dict, List, Optional, Tuple
+import uuid
+from datetime import datetime
 
 import numpy as np
+import pandas as pd
 from openai import OpenAI, APIError
 import tiktoken
 from tqdm import tqdm
@@ -14,6 +20,7 @@ from utils import (
     MAX_TOKENS,
     DEFAULT_EMBEDDING_MODEL,
     get_openai_api_key,
+    DATA_DIR,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,12 +55,19 @@ class TextProcessor:
             timeout=Timeout(30.0, read=300.0),  # 30s connect, 300s read
         )
         
+        # Setup embedding cache
+        self.cache_dir = Path(DATA_DIR) / "embeddings"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.metadata_file = self.cache_dir / "metadata.json"
+        
         logger.info(f"Initialized TextProcessor with model: {model}")
         logger.debug(f"Token limit: {self.token_limit}")
+        logger.debug(f"Cache directory: {self.cache_dir}")
 
     def process_batch(
         self,
         texts: List[str],
+        metadata: Optional[List[Dict]] = None,
         batch_size: int = 100,
         show_progress: bool = True,
     ) -> np.ndarray:
@@ -62,14 +76,12 @@ class TextProcessor:
 
         Args:
             texts: List of texts to process and embed
+            metadata: Optional list of metadata dicts with 'key' and 'summary' for each text
             batch_size: Size of batches for embedding generation
             show_progress: Whether to show progress bar
 
         Returns:
             Array of embeddings
-
-        Raises:
-            OpenAIQuotaExceededError: If the OpenAI API quota is exceeded
         """
         # Truncate texts
         processed_texts = [self._truncate_text(text) for text in texts]
@@ -81,11 +93,176 @@ class TextProcessor:
             iterator = tqdm(iterator, desc="Generating embeddings")
             
         for i in iterator:
-            batch = processed_texts[i:i + batch_size]
-            embeddings = self.get_embeddings(batch)
+            batch_texts = processed_texts[i:i + batch_size]
+            batch_meta = metadata[i:i + batch_size] if metadata else None
+            embeddings = self.get_embeddings(batch_texts, batch_meta)
             all_embeddings.extend(embeddings)
             
         return np.array(all_embeddings)
+
+    def _generate_document_id(self, key: str, summary: str) -> str:
+        """
+        Generate a stable UUID for a document based on key and summary.
+        
+        Args:
+            key: Document key (e.g. JIRA ticket key)
+            summary: Document summary/title
+            
+        Returns:
+            UUID string
+        """
+        # Create a stable hash from key and summary
+        content = f"{key}:{summary}"
+        content_hash = hashlib.sha256(content.encode()).digest()
+        # Generate a UUID using the hash as namespace
+        return str(uuid.uuid5(uuid.NAMESPACE_DNS, content))
+
+    def _load_cache_metadata(self) -> Dict:
+        """Load embedding cache metadata."""
+        if self.metadata_file.exists():
+            return json.loads(self.metadata_file.read_text())
+        return {}
+
+    def _save_cache_metadata(self, metadata: Dict) -> None:
+        """Save embedding cache metadata."""
+        self.metadata_file.write_text(json.dumps(metadata, indent=2))
+
+    def _get_cached_embeddings(self, doc_ids: List[str]) -> Tuple[List[np.ndarray], List[int]]:
+        """
+        Get embeddings from cache for given document IDs.
+        
+        Args:
+            doc_ids: List of document IDs to fetch
+            
+        Returns:
+            Tuple of (cached embeddings, indices of missing embeddings)
+        """
+        cached_embeddings = []
+        missing_indices = []
+        
+        for i, doc_id in enumerate(doc_ids):
+            cache_file = self.cache_dir / f"{doc_id}.parquet"
+            if cache_file.exists():
+                df = pd.read_parquet(cache_file)
+                cached_embeddings.append(df['embedding'].values[0])
+            else:
+                cached_embeddings.append(None)
+                missing_indices.append(i)
+                
+        return cached_embeddings, missing_indices
+
+    def _save_embeddings(
+        self,
+        embeddings: List[np.ndarray],
+        doc_ids: List[str],
+        texts: List[str],
+    ) -> None:
+        """
+        Save embeddings to cache.
+        
+        Args:
+            embeddings: List of embedding arrays
+            doc_ids: List of document IDs
+            texts: List of original texts
+        """
+        metadata = self._load_cache_metadata()
+        
+        for emb, doc_id, text in zip(embeddings, doc_ids, texts):
+            # Save embedding
+            cache_file = self.cache_dir / f"{doc_id}.parquet"
+            df = pd.DataFrame({
+                'doc_id': [doc_id],
+                'text': [text],
+                'embedding': [emb],
+                'model': [self.model],
+            })
+            df.to_parquet(cache_file)
+            
+            # Update metadata
+            metadata[doc_id] = {
+                'model': self.model,
+                'created': datetime.now().isoformat(),
+            }
+            
+        self._save_cache_metadata(metadata)
+
+    def get_embeddings(
+        self,
+        texts: List[str],
+        metadata: Optional[List[Dict]] = None,
+    ) -> List[np.ndarray]:
+        """
+        Get embeddings for a list of texts, using cache when possible.
+
+        Args:
+            texts: List of texts to get embeddings for
+            metadata: Optional list of metadata dicts with 'key' and 'summary' for each text
+
+        Returns:
+            List of embedding arrays
+
+        Raises:
+            OpenAIQuotaExceededError: If the OpenAI API quota is exceeded
+            APIError: For other OpenAI API errors
+        """
+        if not texts:
+            return []
+            
+        # Generate document IDs if metadata provided
+        doc_ids = None
+        if metadata:
+            doc_ids = [
+                self._generate_document_id(meta['key'], meta['summary'])
+                for meta in metadata
+            ]
+            
+            # Try to get embeddings from cache
+            cached_embeddings, missing_indices = self._get_cached_embeddings(doc_ids)
+            
+            # If all embeddings are cached, return them
+            if not missing_indices:
+                logger.info("All embeddings found in cache")
+                return [emb for emb in cached_embeddings if emb is not None]
+                
+            # Get texts that need embedding
+            texts_to_embed = [texts[i] for i in missing_indices]
+            logger.info(f"Generating embeddings for {len(texts_to_embed)} texts")
+        else:
+            texts_to_embed = texts
+            missing_indices = list(range(len(texts)))
+            cached_embeddings = [None] * len(texts)
+        
+        # Process texts that need embedding
+        processed_texts = [self._truncate_text(text) for text in texts_to_embed]
+        
+        try:
+            response = self.client.embeddings.create(
+                input=processed_texts,
+                model=self.model
+            )
+            new_embeddings = [item.embedding for item in response.data]
+            
+            # Save new embeddings to cache if we have document IDs
+            if doc_ids:
+                new_doc_ids = [doc_ids[i] for i in missing_indices]
+                new_texts = [texts[i] for i in missing_indices]
+                self._save_embeddings(new_embeddings, new_doc_ids, new_texts)
+            
+            # Merge cached and new embeddings
+            for new_idx, cache_idx in enumerate(missing_indices):
+                cached_embeddings[cache_idx] = new_embeddings[new_idx]
+                
+            return [emb for emb in cached_embeddings if emb is not None]
+            
+        except APIError as e:
+            if "insufficient_quota" in str(e):
+                logger.error("OpenAI API quota exceeded")
+                raise OpenAIQuotaExceededError("OpenAI API quota exceeded. Please check your usage and limits.") from e
+            logger.error(f"OpenAI API error: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error generating embeddings: {str(e)}")
+            raise
 
     def _truncate_text(self, text: str) -> str:
         """Truncate text to fit within token limit."""
@@ -98,53 +275,6 @@ class TextProcessor:
         
         logger.debug(f"Truncating text from {len(tokens)} tokens to {self.token_limit}")
         return self.tokenizer.decode(tokens[:self.token_limit])
-
-    def get_embeddings(self, texts: List[str], batch_size: int = 100) -> np.ndarray:
-        """
-        Get embeddings for a list of texts.
-
-        Args:
-            texts: List of texts to get embeddings for
-            batch_size: Number of texts to process at once
-
-        Returns:
-            Array of embeddings
-
-        Raises:
-            OpenAIQuotaExceededError: If the OpenAI API quota is exceeded
-            APIError: For other OpenAI API errors
-        """
-        logger.info(f"Generating embeddings for {len(texts)} texts using {self.model}")
-        embeddings = []
-        
-        # Process in batches
-        for i in tqdm(range(0, len(texts), batch_size), desc="Generating embeddings"):
-            batch = texts[i:i + batch_size]
-            logger.debug(f"Processing batch {i//batch_size + 1} of {(len(texts)-1)//batch_size + 1}")
-            
-            # Truncate texts to fit token limit
-            processed_texts = [self._truncate_text(text) for text in batch]
-            
-            try:
-                response = self.client.embeddings.create(
-                    input=processed_texts,
-                    model=self.model
-                )
-                batch_embeddings = [item.embedding for item in response.data]
-                embeddings.extend(batch_embeddings)
-                logger.debug(f"Successfully processed {len(batch)} texts in current batch")
-            except APIError as e:
-                if "insufficient_quota" in str(e):
-                    logger.error("OpenAI API quota exceeded")
-                    raise OpenAIQuotaExceededError("OpenAI API quota exceeded. Please check your usage and limits.") from e
-                logger.error(f"OpenAI API error: {str(e)}")
-                raise
-            except Exception as e:
-                logger.error(f"Unexpected error generating embeddings: {str(e)}")
-                raise
-        
-        logger.info("Finished generating embeddings")
-        return np.array(embeddings)
 
     @staticmethod
     def strip_formatting(text: str) -> str:

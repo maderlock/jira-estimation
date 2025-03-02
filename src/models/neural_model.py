@@ -62,7 +62,7 @@ class NeuralEstimator:
 
         Args:
             X: Feature matrix (embeddings)
-            y: Target values (duration_hours)
+            y: Target values (time_spent)
             test_size: Proportion of data for testing
 
         Returns:
@@ -106,7 +106,7 @@ class NeuralEstimator:
 
         Args:
             X: Feature matrix (embeddings)
-            y: Target values (duration_hours)
+            y: Target values (time_spent)
             test_size: Proportion of data for testing
             epochs: Number of training epochs
             batch_size: Batch size for training
