@@ -6,25 +6,32 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import KFold, cross_validate, train_test_split
+from sklearn.preprocessing import StandardScaler
 
 from utils import calculate_metrics, get_model_config
-
-logger = logging.getLogger(__name__)
 
 
 class LinearEstimator:
     """Linear regression model for time estimation."""
 
-    def __init__(self):
-        """Initialize the model."""
+    def __init__(self, logger: Optional[logging.Logger] = None, config: Optional[Dict] = None):
+        """
+        Initialize the linear model.
+        
+        Args:
+            logger: Optional logger instance
+            config: Optional model configuration
+        """
         self.model = LinearRegression()
+        self.scaler = StandardScaler()
         self.X_train: Optional[np.ndarray] = None
         self.X_test: Optional[np.ndarray] = None
         self.y_train: Optional[np.ndarray] = None
         self.y_test: Optional[np.ndarray] = None
-        self.config = get_model_config()
-        logger.info("Initialized LinearEstimator")
-        logger.debug(f"Model configuration: {self.config}")
+        self.config = config or get_model_config()
+        self.logger = logger or logging.getLogger(__name__)
+        self.logger.info("Initialized LinearEstimator")
+        self.logger.debug(f"Model configuration: {self.config}")
 
     def prepare_data(
         self, X: np.ndarray, y: np.ndarray, test_size: Optional[float] = None
@@ -41,15 +48,15 @@ class LinearEstimator:
             Tuple of (X_train, X_test, y_train, y_test)
         """
         test_size = test_size if test_size is not None else self.config.test_size
-        logger.info(f"Preparing data with test_size={test_size}")
-        logger.debug(f"Input shapes - X: {X.shape}, y: {y.shape}")
+        self.logger.info(f"Preparing data with test_size={test_size}")
+        self.logger.debug(f"Input shapes - X: {X.shape}, y: {y.shape}")
         
         self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
             X, y, test_size=test_size, random_state=self.config.random_seed
         )
         
-        logger.debug(f"Train shapes - X: {self.X_train.shape}, y: {self.y_train.shape}")
-        logger.debug(f"Test shapes - X: {self.X_test.shape}, y: {self.y_test.shape}")
+        self.logger.debug(f"Train shapes - X: {self.X_train.shape}, y: {self.y_train.shape}")
+        self.logger.debug(f"Test shapes - X: {self.X_test.shape}, y: {self.y_test.shape}")
         return self.X_train, self.X_test, self.y_train, self.y_test
 
     def train(
@@ -73,29 +80,29 @@ class LinearEstimator:
         Returns:
             Dictionary containing evaluation metrics
         """
-        logger.info("Training LinearEstimator")
-        logger.debug(f"Parameters - use_cv: {use_cv}, n_splits: {n_splits}")
+        self.logger.info("Training LinearEstimator")
+        self.logger.debug(f"Parameters - use_cv: {use_cv}, n_splits: {n_splits}")
         
         if use_cv:
             n_splits = n_splits if n_splits is not None else self.config.cv_splits
-            logger.info(f"Using {n_splits}-fold cross-validation")
+            self.logger.info(f"Using {n_splits}-fold cross-validation")
             return self._train_with_cv(X, y, n_splits)
         
         # Prepare train/test split if not done already
         if self.X_train is None:
             self.prepare_data(X, y, test_size)
         
-        logger.info("Training model on train set")
+        self.logger.info("Training model on train set")
         self.model.fit(self.X_train, self.y_train)
         
         y_pred = self.model.predict(self.X_test)
         metrics = calculate_metrics(self.y_test, y_pred)
-        logger.info(f"Model performance: {metrics}")
+        self.logger.info(f"Model performance: {metrics}")
         return metrics
 
     def _train_with_cv(self, X: np.ndarray, y: np.ndarray, n_splits: int) -> Dict[str, float]:
         """Train and evaluate using cross-validation."""
-        logger.debug("Starting cross-validation")
+        self.logger.debug("Starting cross-validation")
         
         # Define scoring metrics
         scoring = {
@@ -124,20 +131,20 @@ class LinearEstimator:
             'cv_rmse_std': cv_results['test_rmse'].std(),
         }
         
-        logger.debug(f"Cross-validation metrics: {metrics}")
+        self.logger.debug(f"Cross-validation metrics: {metrics}")
         
         # Train final model on full dataset
-        logger.info("Training final model on full dataset")
+        self.logger.info("Training final model on full dataset")
         self.model.fit(X, y)
         return metrics
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Make predictions using the trained model."""
-        logger.debug(f"Making predictions for {len(X)} samples")
+        self.logger.debug(f"Making predictions for {len(X)} samples")
         return self.model.predict(X)
 
     def save(self, path: Path) -> None:
         """Save the trained model."""
-        logger.info(f"Saving model to {path}")
+        self.logger.info(f"Saving model to {path}")
         import joblib
         joblib.dump(self.model, path)

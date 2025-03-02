@@ -57,18 +57,18 @@ def get_required_env(name: str) -> str:
     return value
 
 
-def get_jira_config() -> JiraConfig:
-    """Get JIRA configuration from environment variables."""
-    return JiraConfig(
-        url=get_required_env("JIRA_URL"),
-        email=get_required_env("JIRA_EMAIL"),
-        api_token=get_required_env("JIRA_API_TOKEN"),
-    )
+def get_jira_credentials() -> Dict[str, str]:
+    """Get JIRA credentials from environment variables."""
+    return {
+        'url': os.getenv('JIRA_URL'),
+        'email': os.getenv('JIRA_EMAIL'),
+        'token': os.getenv('JIRA_API_TOKEN'),
+    }
 
 
 def get_openai_api_key() -> str:
     """Get OpenAI API key from environment."""
-    return get_required_env("OPENAI_API_KEY")
+    return os.getenv('OPENAI_API_KEY')
 
 
 def get_model_config() -> ModelConfig:
@@ -83,23 +83,31 @@ def get_model_config() -> ModelConfig:
     )
 
 
-def setup_logging(level: str = None) -> None:
+def setup_logging(level: str = None) -> logging.Logger:
     """
     Set up logging configuration.
     
     Args:
         level: Optional override for log level. If not provided,
-                  uses LOG_LEVEL from environment (defaults to INFO)
+              uses LOG_LEVEL from environment (defaults to INFO)
+              
+    Returns:
+        Root logger instance
     """
-    # Get log level from environment or use override
-    level = level or os.getenv("LOG_LEVEL", "INFO")
+    # Get log level from environment if not overridden
+    log_level = level or os.getenv('LOG_LEVEL', 'INFO')
     
     # Configure logging
     logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
     )
+    
+    # Get and return the root logger
+    logger = logging.getLogger()
+    logger.setLevel(log_level)
+    return logger
 
 
 def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:

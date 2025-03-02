@@ -6,25 +6,41 @@ from typing import Dict, List, Optional
 import pandas as pd
 from jira import JIRA
 
-from cache import DataCache
-from text_processor import TextProcessor
-from utils import get_jira_config
-
-logger = logging.getLogger(__name__)
+from text_processing import TextProcessor
+from .cache import DataCache
 
 
 class JiraDataFetcher:
     """Class to handle JIRA data fetching and processing."""
 
-    def __init__(self):
-        """Initialize the JIRA client."""
-        config = get_jira_config()
+    def __init__(
+        self,
+        jira_url: str,
+        jira_email: str,
+        jira_token: str,
+        text_processor: TextProcessor,
+        cache_dir: str,
+        logger: Optional[logging.Logger] = None,
+    ):
+        """
+        Initialize the JIRA client with dependencies.
+        
+        Args:
+            jira_url: JIRA instance URL
+            jira_email: Authentication email
+            jira_token: JIRA API token
+            text_processor: Instance of TextProcessor
+            cache_dir: Directory for cache storage
+            logger: Optional logger instance
+        """
         self.jira = JIRA(
-            server=config.url,
-            basic_auth=(config.email, config.api_token)
+            server=jira_url,
+            basic_auth=(jira_email, jira_token)
         )
-        self.cache = DataCache("jira_cache")
-        logger.info("Initialized JIRA client")
+        self.text_processor = text_processor
+        self.cache = DataCache(cache_dir, logger=logger)
+        self.logger = logger or logging.getLogger(__name__)
+        self.logger.info("Initialized JIRA client")
 
     def fetch_tickets(
         self,
@@ -97,7 +113,7 @@ class JiraDataFetcher:
         Returns:
             DataFrame containing issue data
         """
-        logger.debug(
+        self.logger.debug(
             f"Fetching issues with: projects={project_keys}, "
             f"exclude_labels={exclude_labels}, include_subtasks={include_subtasks}, "
             f"updated_after={updated_after}")
@@ -119,7 +135,7 @@ class JiraDataFetcher:
             
         jql = " AND ".join(conditions)
 
-        logger.debug(f"JQL: {jql}")
+        self.logger.debug(f"JQL: {jql}")
         
         # Fetch issues
         issues = self.jira.search_issues(
@@ -129,7 +145,7 @@ class JiraDataFetcher:
         )
         
         if not issues:
-            logger.info("No issues found")
+            self.logger.info("No issues found")
             return pd.DataFrame()
             
         # Process issues
@@ -142,8 +158,8 @@ class JiraDataFetcher:
             time_spent = fields.timespent / 3600 if fields.timespent else None
             
             # Strip out unnecessary formatting from text fields
-            summary = TextProcessor.strip_formatting(getattr(fields, 'summary', ''))
-            description = TextProcessor.strip_formatting(getattr(fields, 'description', ''))
+            summary = self.text_processor.strip_formatting(getattr(fields, 'summary', ''))
+            description = self.text_processor.strip_formatting(getattr(fields, 'description', ''))
 
             # Append data
             data.append({
@@ -156,6 +172,6 @@ class JiraDataFetcher:
                 "time_spent": time_spent,
             })
 
-            logging.debug(f"Fetched issue {issue.key}: {data[-1]}")
+            self.logger.debug(f"Fetched issue {issue.key}: {data[-1]}")
             
         return pd.DataFrame(data)
