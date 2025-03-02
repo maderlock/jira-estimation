@@ -3,7 +3,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 from jira import JIRA
@@ -17,155 +17,169 @@ class JiraDataFetcher:
     """Class to handle JIRA data fetching and processing."""
 
     def __init__(self):
-        """Initialize JIRA client."""
-        # Get JIRA credentials from environment
-        jira_config = get_jira_config()
-        
-        logger.info("Initializing JIRA client")
+        """Initialize the JIRA client."""
+        config = get_jira_config()
         self.jira = JIRA(
-            server=jira_config.url,
-            basic_auth=(jira_config.email, jira_config.api_token)
+            server=config.url,
+            basic_auth=(config.email, config.api_token)
         )
+        logger.info("Initialized JIRA client")
+        
+        # Setup cache directory
         self.cache_dir = Path(DATA_DIR) / "jira_cache"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_file = self.cache_dir / "metadata.json"
         logger.debug(f"Cache directory: {self.cache_dir}")
 
-    def fetch_completed_issues(
+    def fetch_tickets(
         self,
         project_keys: Optional[List[str]] = None,
-        exclude_labels: Optional[List[str]] = None,
         max_results: int = 1000,
-        include_subtasks: bool = True,
+        exclude_labels: Optional[List[str]] = None,
+        include_subtasks: bool = False,
         use_cache: bool = True,
         update_cache: bool = True,
     ) -> pd.DataFrame:
         """
-        Fetch completed issues from JIRA.
+        Fetch completed JIRA tickets.
 
         Args:
-            project_keys: List of project keys to include
-            exclude_labels: List of labels to exclude from the search
-            max_results: Maximum number of issues to fetch
-            include_subtasks: Whether to include subtasks in the search
-            use_cache: Whether to use cached data if available
+            project_keys: List of JIRA project keys to fetch tickets from
+            max_results: Maximum number of tickets to fetch
+            exclude_labels: List of labels to exclude from results
+            include_subtasks: Whether to include subtasks
+            use_cache: Whether to use cached data
             update_cache: Whether to update cache with new tickets
 
         Returns:
-            DataFrame containing processed issue data
+            DataFrame containing ticket data
         """
-        logger.info(f"Fetching completed issues for projects: {', '.join(project_keys or [])}")
-        logger.debug(f"Parameters: max_results={max_results}, exclude_labels={exclude_labels}, "
-                    f"include_subtasks={include_subtasks}, use_cache={use_cache}, "
-                    f"update_cache={update_cache}")
-
-        # Generate cache key based on query parameters
-        cache_key = self._generate_cache_key(project_keys, exclude_labels, include_subtasks)
-        cache_file = self.cache_dir / f"{cache_key}.pkl"
-
-        # Try to load from cache
+        cache_key = self._get_cache_key(project_keys, exclude_labels, include_subtasks)
+        cache_file = self.cache_dir / f"{cache_key}.parquet"
+        
+        df = pd.DataFrame()
+        
+        # Try to load from cache first
         if use_cache and cache_file.exists():
-            cached_df = pd.read_pickle(cache_file)
+            logger.info(f"Loading cached data from {cache_file}")
+            df = pd.read_parquet(cache_file)
+            
             if not update_cache:
-                logger.info(f"Loaded {len(cached_df)} issues from cache")
-                return cached_df
+                logger.info("Using cached data without updates")
+                return df
 
             # Get last update time
             metadata = self._load_metadata()
-            last_update = metadata.get(cache_key, "1970-01-01T00:00:00Z")
+            last_update = metadata.get(cache_key, "1970-01-01 00:00")
             
             # Update cache with new tickets
             new_df = self._fetch_issues(
-                project_keys,
-                exclude_labels,
-                max_results,
-                include_subtasks,
+                project_keys=project_keys,
+                max_results=max_results,
+                exclude_labels=exclude_labels,
+                include_subtasks=include_subtasks,
                 updated_after=last_update,
             )
             
             if not new_df.empty:
-                df = pd.concat([cached_df, new_df]).drop_duplicates(subset=["key"])
-                df.to_pickle(cache_file)
-                self._update_metadata(cache_key)
-                logger.info(f"Updated cache with {len(new_df)} new issues")
-                return df
+                logger.info(f"Found {len(new_df)} new tickets")
+                df = pd.concat([df, new_df], ignore_index=True)
+                df = df.drop_duplicates(subset=["key"], keep="last")
+                df.to_parquet(cache_file)
                 
-            logger.info(f"No new issues found, returning cached data")
-            return cached_df
-
-        # Fetch all data if no cache or cache disabled
-        df = self._fetch_issues(
-            project_keys,
-            exclude_labels,
-            max_results,
-            include_subtasks,
-        )
-        
-        if update_cache and not df.empty:
-            df.to_pickle(cache_file)
-            self._update_metadata(cache_key)
-            logger.info(f"Updated cache with {len(df)} issues")
+                # Update metadata
+                metadata[cache_key] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                self._save_metadata(metadata)
+            else:
+                logger.info("No new tickets found")
+        else:
+            # Fetch all tickets
+            logger.info("Fetching all tickets")
+            df = self._fetch_issues(
+                project_keys=project_keys,
+                max_results=max_results,
+                exclude_labels=exclude_labels,
+                include_subtasks=include_subtasks,
+            )
             
-        logger.info(f"Successfully fetched {len(df)} issues")
+            if not df.empty:
+                df.to_parquet(cache_file)
+                
+                # Update metadata
+                metadata = self._load_metadata()
+                metadata[cache_key] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                self._save_metadata(metadata)
+        
         return df
 
-    def _generate_cache_key(
+    def _get_cache_key(
         self,
         project_keys: Optional[List[str]],
         exclude_labels: Optional[List[str]],
         include_subtasks: bool,
     ) -> str:
-        """Generate a unique cache key based on query parameters."""
+        """Generate a cache key based on query parameters."""
         components = []
+        
         if project_keys:
             components.append(f"projects={'_'.join(sorted(project_keys))}")
+            
         if exclude_labels:
             components.append(f"exclude={'_'.join(sorted(exclude_labels))}")
+            
         if include_subtasks:
             components.append("subtasks")
+            
         return "_".join(components) if components else "all"
 
-    def _load_metadata(self) -> Dict:
+    def _load_metadata(self) -> Dict[str, str]:
         """Load cache metadata."""
         if self.metadata_file.exists():
-            with open(self.metadata_file) as f:
-                return json.load(f)
+            return json.loads(self.metadata_file.read_text())
         return {}
 
-    def _update_metadata(self, cache_key: str) -> None:
-        """Update cache metadata with current timestamp."""
-        metadata = self._load_metadata()
-        metadata[cache_key] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-        with open(self.metadata_file, "w") as f:
-            json.dump(metadata, f)
+    def _save_metadata(self, metadata: Dict[str, str]) -> None:
+        """Save cache metadata."""
+        self.metadata_file.write_text(json.dumps(metadata, indent=2))
 
     def _fetch_issues(
         self,
         project_keys: Optional[List[str]] = None,
-        exclude_labels: Optional[List[str]] = None,
         max_results: int = 1000,
-        include_subtasks: bool = True,
+        exclude_labels: Optional[List[str]] = None,
+        include_subtasks: bool = False,
         updated_after: Optional[str] = None,
     ) -> pd.DataFrame:
-        """Fetch issues from JIRA API."""
-        logger.info(f"Fetching issues from JIRA API")
-        logger.debug(f"Parameters: project_keys={project_keys}, exclude_labels={exclude_labels}, "
-                    f"max_results={max_results}, include_subtasks={include_subtasks}, "
-                    f"updated_after={updated_after}")
+        """
+        Fetch issues from JIRA.
+
+        Args:
+            project_keys: List of JIRA project keys
+            max_results: Maximum number of issues to fetch
+            exclude_labels: List of labels to exclude
+            include_subtasks: Whether to include subtasks
+            updated_after: Only fetch issues updated after this date
+
+        Returns:
+            DataFrame containing issue data
+        """
+        logger.debug(
+            f"Fetching issues with: projects={project_keys}, "
+            f"exclude_labels={exclude_labels}, include_subtasks={include_subtasks}, "
+            f"updated_after={updated_after}")
 
         # Build JQL query
         conditions = ["status = Closed"]
         
         if project_keys:
             conditions.append(f"project in ({','.join(project_keys)})")
-        
+            
+        if exclude_labels:
+            conditions.append(f"labels not in ({','.join(exclude_labels)})")
+            
         if not include_subtasks:
             conditions.append("type != Sub-task")
             
-        if exclude_labels:
-            for label in exclude_labels:
-                conditions.append(f"labels != {label}")
-                
         if updated_after:
             conditions.append(f"updated > '{updated_after}'")
             
@@ -177,7 +191,7 @@ class JiraDataFetcher:
         issues = self.jira.search_issues(
             jql,
             maxResults=max_results,
-            fields="summary,description,created,resolutiondate,timeoriginalestimate,timespent,labels",
+            fields="summary,description,created,updated,resolutiondate,timeoriginalestimate,timespent",
         )
         
         if not issues:
@@ -188,17 +202,29 @@ class JiraDataFetcher:
         data = []
         for issue in issues:
             fields = issue.fields
+            
+            # Calculate duration in hours
+            if fields.resolutiondate and fields.created:
+                start = datetime.strptime(fields.created[:19], "%Y-%m-%dT%H:%M:%S")
+                end = datetime.strptime(fields.resolutiondate[:19], "%Y-%m-%dT%H:%M:%S")
+                duration_hours = (end - start).total_seconds() / 3600
+            else:
+                duration_hours = None
+                
+            # Get time estimates in hours
+            original_estimate = fields.timeoriginalestimate / 3600 if fields.timeoriginalestimate else None
+            time_spent = fields.timespent / 3600 if fields.timespent else None
+            
             data.append({
                 "key": issue.key,
-                "summary": fields.summary or "",
-                "description": fields.description or "",
+                "summary": fields.summary,
+                "description": fields.description,
                 "created": fields.created,
+                "updated": fields.updated,
                 "resolved": fields.resolutiondate,
-                "original_estimate": fields.timeoriginalestimate or 0,
-                "time_spent": fields.timespent or 0,
-                "labels": ",".join(fields.labels) if fields.labels else "",
-                "duration_hours": (fields.timespent or 0) / 3600,
+                "duration_hours": duration_hours,
+                "original_estimate": original_estimate,
+                "time_spent": time_spent,
             })
             
-        logger.info(f"Fetched {len(data)} issues")
         return pd.DataFrame(data)

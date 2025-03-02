@@ -3,7 +3,7 @@ import logging
 from typing import List, Optional
 
 import numpy as np
-import openai
+from openai import OpenAI
 import tiktoken
 from tqdm import tqdm
 
@@ -34,8 +34,8 @@ class TextProcessor:
         self.token_limit = MAX_TOKENS[self.model]
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
         
-        # Initialize OpenAI API key
-        openai.api_key = get_openai_api_key()
+        # Initialize OpenAI client
+        self.client = OpenAI(api_key=get_openai_api_key())
         
         logger.info(f"Initialized TextProcessor with model: {model}")
         logger.debug(f"Token limit: {self.token_limit}")
@@ -68,7 +68,7 @@ class TextProcessor:
             
         for i in iterator:
             batch = processed_texts[i:i + batch_size]
-            embeddings = self._get_embeddings(batch)
+            embeddings = self.get_embeddings(batch)
             all_embeddings.extend(embeddings)
             
         return np.array(all_embeddings)
@@ -85,25 +85,39 @@ class TextProcessor:
         logger.debug(f"Truncating text from {len(tokens)} tokens to {self.token_limit}")
         return self.tokenizer.decode(tokens[:self.token_limit])
 
-    def _get_embeddings(self, texts: List[str]) -> List[List[float]]:
+    def get_embeddings(self, texts: List[str], batch_size: int = 100) -> np.ndarray:
         """
-        Generate embeddings for a list of texts.
+        Get embeddings for a list of texts.
 
         Args:
-            texts: List of texts to generate embeddings for
+            texts: List of texts to get embeddings for
+            batch_size: Number of texts to process at once
 
         Returns:
-            List of embeddings
+            Array of embeddings
         """
         logger.info(f"Generating embeddings for {len(texts)} texts using {self.model}")
-        try:
-            response = openai.Embedding.create(
-                model=self.model,
-                input=texts,
-            )
-            embeddings = [data["embedding"] for data in response["data"]]
-            logger.debug(f"Successfully processed {len(texts)} texts")
-            return embeddings
-        except Exception as e:
-            logger.error(f"Error generating embeddings: {str(e)}")
-            raise
+        embeddings = []
+        
+        # Process in batches
+        for i in tqdm(range(0, len(texts), batch_size), desc="Generating embeddings"):
+            batch = texts[i:i + batch_size]
+            logger.debug(f"Processing batch {i//batch_size + 1} of {(len(texts)-1)//batch_size + 1}")
+            
+            # Truncate texts to fit token limit
+            processed_texts = [self._truncate_text(text) for text in batch]
+            
+            try:
+                response = self.client.embeddings.create(
+                    input=processed_texts,
+                    model=self.model
+                )
+                batch_embeddings = [item.embedding for item in response.data]
+                embeddings.extend(batch_embeddings)
+                logger.debug(f"Successfully processed {len(batch)} texts in current batch")
+            except Exception as e:
+                logger.error(f"Error generating embeddings for batch: {str(e)}")
+                raise
+        
+        logger.info("Finished generating embeddings")
+        return np.array(embeddings)

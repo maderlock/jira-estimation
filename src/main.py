@@ -58,10 +58,10 @@ def main():
 
     # Fetch and process data
     logger.info("Fetching JIRA tickets")
-    df = data_fetcher.fetch_completed_issues(
+    df = data_fetcher.fetch_tickets(
         project_keys=args.project_keys,
-        exclude_labels=args.exclude_labels,
         max_results=args.max_results,
+        exclude_labels=args.exclude_labels,
         include_subtasks=args.include_subtasks,
         use_cache=not args.no_cache,
         update_cache=not args.no_cache_update,
