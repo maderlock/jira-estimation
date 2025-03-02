@@ -1,14 +1,13 @@
 """Module for fetching and processing JIRA ticket data."""
-import json
 import logging
 from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import pandas as pd
 from jira import JIRA
 
-from utils import DATA_DIR, get_jira_config
+from cache import DataCache
+from utils import get_jira_config
 
 logger = logging.getLogger(__name__)
 
@@ -23,13 +22,8 @@ class JiraDataFetcher:
             server=config.url,
             basic_auth=(config.email, config.api_token)
         )
+        self.cache = DataCache("jira_cache")
         logger.info("Initialized JIRA client")
-        
-        # Setup cache directory
-        self.cache_dir = Path(DATA_DIR) / "jira_cache"
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.metadata_file = self.cache_dir / "metadata.json"
-        logger.debug(f"Cache directory: {self.cache_dir}")
 
     def fetch_tickets(
         self,
@@ -39,6 +33,7 @@ class JiraDataFetcher:
         include_subtasks: bool = False,
         use_cache: bool = True,
         update_cache: bool = True,
+        force_update: bool = False,
     ) -> pd.DataFrame:
         """
         Fetch completed JIRA tickets.
@@ -50,97 +45,35 @@ class JiraDataFetcher:
             include_subtasks: Whether to include subtasks
             use_cache: Whether to use cached data
             update_cache: Whether to update cache with new tickets
+            force_update: Whether to force a full update regardless of timestamps
 
         Returns:
             DataFrame containing ticket data
         """
-        cache_key = self._get_cache_key(project_keys, exclude_labels, include_subtasks)
-        cache_file = self.cache_dir / f"{cache_key}.parquet"
+        # Generate cache key from parameters
+        cache_key = self.cache.get_cache_key(
+            projects=project_keys,
+            exclude=exclude_labels,
+            subtasks=include_subtasks
+        )
         
-        df = pd.DataFrame()
+        # Prepare fetch parameters
+        fetch_kwargs = {
+            "project_keys": project_keys,
+            "max_results": max_results,
+            "exclude_labels": exclude_labels,
+            "include_subtasks": include_subtasks,
+        }
         
-        # Try to load from cache first
-        if use_cache and cache_file.exists():
-            logger.info(f"Loading cached data from {cache_file}")
-            df = pd.read_parquet(cache_file)
-            
-            if not update_cache:
-                logger.info("Using cached data without updates")
-                return df
-
-            # Get last update time
-            metadata = self._load_metadata()
-            last_update = metadata.get(cache_key, "1970-01-01 00:00")
-            
-            # Update cache with new tickets
-            new_df = self._fetch_issues(
-                project_keys=project_keys,
-                max_results=max_results,
-                exclude_labels=exclude_labels,
-                include_subtasks=include_subtasks,
-                updated_after=last_update,
-            )
-            
-            if not new_df.empty:
-                logger.info(f"Found {len(new_df)} new tickets")
-                df = pd.concat([df, new_df], ignore_index=True)
-                df = df.drop_duplicates(subset=["key"], keep="last")
-                df.to_parquet(cache_file)
-                
-                # Update metadata
-                metadata[cache_key] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                self._save_metadata(metadata)
-            else:
-                logger.info("No new tickets found")
-        else:
-            # Fetch all tickets
-            logger.info("Fetching all tickets")
-            df = self._fetch_issues(
-                project_keys=project_keys,
-                max_results=max_results,
-                exclude_labels=exclude_labels,
-                include_subtasks=include_subtasks,
-            )
-            
-            if not df.empty:
-                df.to_parquet(cache_file)
-                
-                # Update metadata
-                metadata = self._load_metadata()
-                metadata[cache_key] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                self._save_metadata(metadata)
-        
-        return df
-
-    def _get_cache_key(
-        self,
-        project_keys: Optional[List[str]],
-        exclude_labels: Optional[List[str]],
-        include_subtasks: bool,
-    ) -> str:
-        """Generate a cache key based on query parameters."""
-        components = []
-        
-        if project_keys:
-            components.append(f"projects={'_'.join(sorted(project_keys))}")
-            
-        if exclude_labels:
-            components.append(f"exclude={'_'.join(sorted(exclude_labels))}")
-            
-        if include_subtasks:
-            components.append("subtasks")
-            
-        return "_".join(components) if components else "all"
-
-    def _load_metadata(self) -> Dict[str, str]:
-        """Load cache metadata."""
-        if self.metadata_file.exists():
-            return json.loads(self.metadata_file.read_text())
-        return {}
-
-    def _save_metadata(self, metadata: Dict[str, str]) -> None:
-        """Save cache metadata."""
-        self.metadata_file.write_text(json.dumps(metadata, indent=2))
+        # Load from cache if possible, or use this class as callback
+        return self.cache.load(
+            cache_key=cache_key,
+            update_func=self._fetch_issues,
+            update_kwargs=fetch_kwargs,
+            use_cache=use_cache,
+            update_cache=update_cache,
+            force_update=force_update,
+        )
 
     def _fetch_issues(
         self,

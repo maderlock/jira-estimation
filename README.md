@@ -86,6 +86,23 @@ python src/main.py --project-keys PROJECT1 PROJECT2
 - `--include-subtasks`: Include subtasks in data fetch
 - `--no-cache`: Don't use cached JIRA data
 - `--no-cache-update`: Don't update cache with new tickets
+- `--force-update`: Force full update of cached data, ignoring timestamps
+
+### Cache Control Examples
+
+```bash
+# Force complete refresh of cache
+python src/main.py --project-keys PROJECT1 --force-update
+
+# Use cached data only, no updates
+python src/main.py --project-keys PROJECT1 --no-cache-update
+
+# Fetch fresh but don't save to cache
+python src/main.py --project-keys PROJECT1 --no-cache --no-cache-update
+
+# Normal operation: use cache and fetch updates
+python src/main.py --project-keys PROJECT1
+```
 
 ### Model Options
 

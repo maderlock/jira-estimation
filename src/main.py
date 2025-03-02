@@ -25,6 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--include-subtasks", action="store_true", help="Include subtasks")
     parser.add_argument("--no-cache", action="store_true", help="Don't use cached JIRA data")
     parser.add_argument("--no-cache-update", action="store_true", help="Don't update cache with new tickets")
+    parser.add_argument("--force-update", action="store_true", help="Force full update of cached data")
     
     # Model arguments
     parser.add_argument("--test-size", type=float, default=model_config.test_size, help="Test set size")
@@ -65,6 +66,7 @@ def main():
         include_subtasks=args.include_subtasks,
         use_cache=not args.no_cache,
         update_cache=not args.no_cache_update,
+        force_update=args.force_update,
     )
     
     if df.empty:
