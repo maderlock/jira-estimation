@@ -3,10 +3,34 @@ import logging
 import os
 from pathlib import Path
 from typing import Dict, NamedTuple
+from dotenv import load_dotenv
 
 import numpy as np
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
+# Constants
+DATA_DIR = "data"  # Default value, can be overridden by env
+
+# OpenAI Models
+EMBEDDING_MODELS = {
+    "ada": "text-embedding-ada-002",
+    "davinci": "text-embedding-3-large",
+}
+
+MAX_TOKENS = {
+    "text-embedding-ada-002": 8191,
+    "text-embedding-3-large": 8191,
+}
+
+DEFAULT_EMBEDDING_MODEL = "ada"  # Default value, can be overridden by env
+
+
+def load_environment() -> None:
+    """Load environment variables from .env file."""
+    load_dotenv()
+    global DATA_DIR, DEFAULT_EMBEDDING_MODEL
+    DATA_DIR = os.getenv("DATA_DIR", DATA_DIR)
+    DEFAULT_EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL)
 
 class JiraConfig(NamedTuple):
     """JIRA configuration settings."""
@@ -19,6 +43,7 @@ class ModelConfig(NamedTuple):
     """Model configuration settings."""
     test_size: float
     cv_splits: int
+    random_seed: int
     epochs: int
     batch_size: int
     learning_rate: float
@@ -59,8 +84,17 @@ def get_model_config() -> ModelConfig:
 
 
 def setup_logging(level: str = None) -> None:
-    """Set up logging configuration."""
+    """
+    Set up logging configuration.
+    
+    Args:
+        level: Optional override for log level. If not provided,
+                  uses LOG_LEVEL from environment (defaults to INFO)
+    """
+    # Get log level from environment or use override
     level = level or os.getenv("LOG_LEVEL", "INFO")
+    
+    # Configure logging
     logging.basicConfig(
         level=level,
         format="%(asctime)s [%(levelname)s] %(message)s",
@@ -84,20 +118,3 @@ def calculate_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float
         "mae": mean_absolute_error(y_true, y_pred),
         "rmse": np.sqrt(mean_squared_error(y_true, y_pred)),
     }
-
-
-# Data storage
-DATA_DIR = os.getenv("DATA_DIR", "data")
-
-# OpenAI configuration
-EMBEDDING_MODELS = {
-    "ada": "text-embedding-ada-002",
-    "gpt4": "gpt-4",  # For future use
-}
-
-MAX_TOKENS = {
-    "text-embedding-ada-002": 8191,
-    "gpt4": 8192,  # For future use
-}
-
-DEFAULT_EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "ada")

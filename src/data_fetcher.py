@@ -1,5 +1,6 @@
 """Module for fetching and processing JIRA ticket data."""
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -7,7 +8,9 @@ from typing import Dict, List, Optional, Set, Tuple
 import pandas as pd
 from jira import JIRA
 
-from src.utils import DATA_DIR, get_jira_config
+from utils import DATA_DIR, get_jira_config
+
+logger = logging.getLogger(__name__)
 
 
 class JiraDataFetcher:
@@ -18,6 +21,7 @@ class JiraDataFetcher:
         # Get JIRA credentials from environment
         jira_config = get_jira_config()
         
+        logger.info("Initializing JIRA client")
         self.jira = JIRA(
             server=jira_config.url,
             basic_auth=(jira_config.email, jira_config.api_token)
@@ -25,6 +29,7 @@ class JiraDataFetcher:
         self.cache_dir = Path(DATA_DIR) / "jira_cache"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.metadata_file = self.cache_dir / "metadata.json"
+        logger.debug(f"Cache directory: {self.cache_dir}")
 
     def fetch_completed_issues(
         self,
@@ -49,6 +54,11 @@ class JiraDataFetcher:
         Returns:
             DataFrame containing processed issue data
         """
+        logger.info(f"Fetching completed issues for projects: {', '.join(project_keys or [])}")
+        logger.debug(f"Parameters: max_results={max_results}, exclude_labels={exclude_labels}, "
+                    f"include_subtasks={include_subtasks}, use_cache={use_cache}, "
+                    f"update_cache={update_cache}")
+
         # Generate cache key based on query parameters
         cache_key = self._generate_cache_key(project_keys, exclude_labels, include_subtasks)
         cache_file = self.cache_dir / f"{cache_key}.pkl"
@@ -57,6 +67,7 @@ class JiraDataFetcher:
         if use_cache and cache_file.exists():
             cached_df = pd.read_pickle(cache_file)
             if not update_cache:
+                logger.info(f"Loaded {len(cached_df)} issues from cache")
                 return cached_df
 
             # Get last update time
@@ -76,8 +87,10 @@ class JiraDataFetcher:
                 df = pd.concat([cached_df, new_df]).drop_duplicates(subset=["key"])
                 df.to_pickle(cache_file)
                 self._update_metadata(cache_key)
+                logger.info(f"Updated cache with {len(new_df)} new issues")
                 return df
                 
+            logger.info(f"No new issues found, returning cached data")
             return cached_df
 
         # Fetch all data if no cache or cache disabled
@@ -91,7 +104,9 @@ class JiraDataFetcher:
         if update_cache and not df.empty:
             df.to_pickle(cache_file)
             self._update_metadata(cache_key)
+            logger.info(f"Updated cache with {len(df)} issues")
             
+        logger.info(f"Successfully fetched {len(df)} issues")
         return df
 
     def _generate_cache_key(
@@ -133,6 +148,11 @@ class JiraDataFetcher:
         updated_after: Optional[str] = None,
     ) -> pd.DataFrame:
         """Fetch issues from JIRA API."""
+        logger.info(f"Fetching issues from JIRA API")
+        logger.debug(f"Parameters: project_keys={project_keys}, exclude_labels={exclude_labels}, "
+                    f"max_results={max_results}, include_subtasks={include_subtasks}, "
+                    f"updated_after={updated_after}")
+
         # Build JQL query
         conditions = ["status = Done"]
         
@@ -159,6 +179,7 @@ class JiraDataFetcher:
         )
         
         if not issues:
+            logger.info("No issues found")
             return pd.DataFrame()
             
         # Process issues
@@ -177,4 +198,5 @@ class JiraDataFetcher:
                 "duration_hours": (fields.timespent or 0) / 3600,
             })
             
+        logger.info(f"Fetched {len(data)} issues")
         return pd.DataFrame(data)

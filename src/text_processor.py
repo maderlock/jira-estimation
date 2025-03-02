@@ -1,4 +1,5 @@
 """Module for processing and embedding text data."""
+import logging
 from typing import List, Optional
 
 import numpy as np
@@ -6,15 +7,14 @@ import openai
 import tiktoken
 from tqdm import tqdm
 
-from src.utils import (
+from utils import (
     EMBEDDING_MODELS,
     MAX_TOKENS,
     DEFAULT_EMBEDDING_MODEL,
     get_openai_api_key,
 )
 
-# Set OpenAI API key
-openai.api_key = get_openai_api_key()
+logger = logging.getLogger(__name__)
 
 
 class TextProcessor:
@@ -33,6 +33,12 @@ class TextProcessor:
         self.model = EMBEDDING_MODELS[model]
         self.token_limit = MAX_TOKENS[self.model]
         self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        
+        # Initialize OpenAI API key
+        openai.api_key = get_openai_api_key()
+        
+        logger.info(f"Initialized TextProcessor with model: {model}")
+        logger.debug(f"Token limit: {self.token_limit}")
 
     def process_batch(
         self,
@@ -68,19 +74,15 @@ class TextProcessor:
         return np.array(all_embeddings)
 
     def _truncate_text(self, text: str) -> str:
-        """
-        Truncate text to token limit.
-
-        Args:
-            text: Text to truncate
-
-        Returns:
-            Truncated text
-        """
+        """Truncate text to fit within token limit."""
         if not text:
             return ""
             
         tokens = self.tokenizer.encode(text)
+        if len(tokens) <= self.token_limit:
+            return text
+        
+        logger.debug(f"Truncating text from {len(tokens)} tokens to {self.token_limit}")
         return self.tokenizer.decode(tokens[:self.token_limit])
 
     def _get_embeddings(self, texts: List[str]) -> List[List[float]]:
@@ -93,8 +95,15 @@ class TextProcessor:
         Returns:
             List of embeddings
         """
-        response = openai.Embedding.create(
-            model=self.model,
-            input=texts,
-        )
-        return [data["embedding"] for data in response["data"]]
+        logger.info(f"Generating embeddings for {len(texts)} texts using {self.model}")
+        try:
+            response = openai.Embedding.create(
+                model=self.model,
+                input=texts,
+            )
+            embeddings = [data["embedding"] for data in response["data"]]
+            logger.debug(f"Successfully processed {len(texts)} texts")
+            return embeddings
+        except Exception as e:
+            logger.error(f"Error generating embeddings: {str(e)}")
+            raise

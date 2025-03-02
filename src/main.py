@@ -6,11 +6,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.data_fetcher import JiraDataFetcher
-from src.models.linear_model import LinearEstimator
-from src.models.neural_model import NeuralEstimator
-from src.text_processor import TextProcessor
-from src.utils import get_model_config, setup_logging
+from data_fetcher import JiraDataFetcher
+from models.linear_model import LinearEstimator
+from models.neural_model import NeuralEstimator
+from text_processor import TextProcessor
+from utils import get_model_config, setup_logging, load_environment
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,18 +34,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=model_config.epochs, help="Training epochs (neural only)")
     parser.add_argument("--batch-size", type=int, default=model_config.batch_size, help="Batch size (neural only)")
     parser.add_argument("--learning-rate", type=float, default=model_config.learning_rate, help="Learning rate (neural only)")
-    parser.add_argument("--log-level", default="INFO", help="Logging level")
+    parser.add_argument("--log-level", help="Override default log level from environment")
     return parser.parse_args()
 
 
-def main() -> None:
-    """Main execution function."""
-    args = parse_args()
-    setup_logging(args.log_level)
+def main():
+    """Main function."""
+    # Load environment variables first
+    load_environment()
     
-    # Fetch data
-    fetcher = JiraDataFetcher()
-    df = fetcher.fetch_completed_issues(
+    args = parse_args()
+    setup_logging(args.log_level)  # Will use LOG_LEVEL from env if not overridden
+    logger = logging.getLogger(__name__)
+    
+    logger.info("Starting JIRA ticket time estimation")
+    logger.debug(f"Arguments: {args}")
+
+    # Initialize components
+    logger.info("Initializing components")
+    data_fetcher = JiraDataFetcher()
+    text_processor = TextProcessor()
+    model = LinearEstimator() if args.model_type == "linear" else NeuralEstimator()
+
+    # Fetch and process data
+    logger.info("Fetching JIRA tickets")
+    df = data_fetcher.fetch_completed_issues(
         project_keys=args.project_keys,
         exclude_labels=args.exclude_labels,
         max_results=args.max_results,
@@ -55,23 +68,18 @@ def main() -> None:
     )
     
     if df.empty:
-        logging.error("No data fetched. Exiting.")
+        logger.error("No tickets found matching criteria")
         return
-        
-    logging.info(f"Fetched {len(df)} tickets")
-    
-    # Process text and generate embeddings
-    processor = TextProcessor()
-    embeddings = processor.process_batch([
-        f"{row.summary}\n{row.description}" for _, row in df.iterrows()
-    ])
-    
-    # Prepare target variable
-    y = df.duration_hours.values
-    
+
+    logger.info("Processing ticket text")
+    # Combine summary and description for embedding
+    texts = [f"{row.summary}\n{row.description}" for _, row in df.iterrows()]
+    embeddings = text_processor.process_batch(texts)
+    y = df["duration_hours"].values
+
     # Train model
+    logger.info(f"Training {args.model_type} model")
     if args.model_type == "linear":
-        model = LinearEstimator()
         metrics = model.train(
             embeddings,
             y,
@@ -80,7 +88,6 @@ def main() -> None:
             n_splits=args.cv_splits,
         )
     else:
-        model = NeuralEstimator()
         metrics = model.train(
             embeddings,
             y,
@@ -89,18 +96,21 @@ def main() -> None:
             batch_size=args.batch_size,
             learning_rate=args.learning_rate,
         )
+
+    # Save results
+    logger.info("Saving results")
+    results_dir = Path("models")
+    results_dir.mkdir(exist_ok=True)
     
-    # Log results
+    model_file = results_dir / f"{args.model_type}_model"
+    model_file = model_file.with_suffix(".pkl" if args.model_type == "linear" else ".pt")
+    model.save(model_file)
+    logger.info(f"Model saved to {model_file}")
+
+    # Print metrics
+    logger.info("Final model performance:")
     for metric, value in metrics.items():
-        logging.info(f"{metric}: {value:.4f}")
-    
-    # Save model
-    save_dir = Path("models")
-    save_dir.mkdir(exist_ok=True)
-    model_path = save_dir / f"{args.model_type}_model"
-    model_path = model_path.with_suffix(".pkl" if args.model_type == "linear" else ".pt")
-    model.save(model_path)
-    logging.info(f"Model saved to {model_path}")
+        logger.info(f"{metric}: {value:.4f}")
 
 
 if __name__ == "__main__":

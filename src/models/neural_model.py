@@ -1,4 +1,5 @@
 """Neural network model implementation."""
+import logging
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -9,7 +10,9 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import DataLoader, TensorDataset
 from tqdm import tqdm
 
-from src.utils import calculate_metrics, get_model_config
+from utils import calculate_metrics, get_model_config
+
+logger = logging.getLogger(__name__)
 
 
 class TimeEstimatorNN(nn.Module):
@@ -29,6 +32,7 @@ class TimeEstimatorNN(nn.Module):
             nn.ReLU(),
             nn.Linear(32, 1)
         )
+        logger.debug(f"Created neural network with input size: {input_size}")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass through the network."""
@@ -47,6 +51,8 @@ class NeuralEstimator:
         self.y_train: Optional[np.ndarray] = None
         self.y_test: Optional[np.ndarray] = None
         self.config = get_model_config()
+        logger.info(f"Initialized NeuralEstimator using device: {self.device}")
+        logger.debug(f"Model configuration: {self.config}")
 
     def prepare_data(
         self, X: np.ndarray, y: np.ndarray, test_size: Optional[float] = None
@@ -57,15 +63,21 @@ class NeuralEstimator:
         Args:
             X: Feature matrix (embeddings)
             y: Target values (duration_hours)
-            test_size: Proportion of data to use for testing
+            test_size: Proportion of data for testing
 
         Returns:
             Tuple of (X_train, X_test, y_train, y_test)
         """
         test_size = test_size if test_size is not None else self.config.test_size
+        logger.info(f"Preparing data with test_size={test_size}")
+        logger.debug(f"Input shapes - X: {X.shape}, y: {y.shape}")
+        
         self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
             X, y, test_size=test_size, random_state=self.config.random_seed
         )
+        
+        logger.debug(f"Train shapes - X: {self.X_train.shape}, y: {self.y_train.shape}")
+        logger.debug(f"Test shapes - X: {self.X_test.shape}, y: {self.y_test.shape}")
         return self.X_train, self.X_test, self.y_train, self.y_test
 
     def _create_data_loader(
@@ -73,6 +85,8 @@ class NeuralEstimator:
     ) -> DataLoader:
         """Create a PyTorch DataLoader from numpy arrays."""
         batch_size = batch_size if batch_size is not None else self.config.batch_size
+        logger.debug(f"Creating DataLoader with batch_size={batch_size}")
+        
         X_tensor = torch.FloatTensor(X)
         y_tensor = torch.FloatTensor(y).reshape(-1, 1)
         dataset = TensorDataset(X_tensor, y_tensor)
@@ -93,7 +107,7 @@ class NeuralEstimator:
         Args:
             X: Feature matrix (embeddings)
             y: Target values (duration_hours)
-            test_size: Proportion of data to use for testing
+            test_size: Proportion of data for testing
             epochs: Number of training epochs
             batch_size: Batch size for training
             learning_rate: Learning rate for optimization
@@ -101,9 +115,12 @@ class NeuralEstimator:
         Returns:
             Dictionary containing evaluation metrics
         """
+        logger.info("Training NeuralEstimator")
+        
         # Set default values from config
         epochs = epochs if epochs is not None else self.config.epochs
         learning_rate = learning_rate if learning_rate is not None else self.config.learning_rate
+        logger.debug(f"Training parameters - epochs: {epochs}, learning_rate: {learning_rate}")
         
         # Prepare train/test split if not done already
         if self.X_train is None:
@@ -112,6 +129,7 @@ class NeuralEstimator:
         # Initialize model if not done already
         if self.model is None:
             self.model = TimeEstimatorNN(input_size=X.shape[1]).to(self.device)
+            logger.info(f"Created new model with input size: {X.shape[1]}")
 
         # Create data loaders
         train_loader = self._create_data_loader(self.X_train, self.y_train, batch_size)
@@ -120,7 +138,11 @@ class NeuralEstimator:
 
         # Training loop
         self.model.train()
+        logger.info("Starting training loop")
         for epoch in tqdm(range(epochs), desc="Training"):
+            epoch_loss = 0.0
+            num_batches = 0
+            
             for batch_X, batch_y in train_loader:
                 batch_X = batch_X.to(self.device)
                 batch_y = batch_y.to(self.device)
@@ -130,20 +152,31 @@ class NeuralEstimator:
                 loss = criterion(outputs, batch_y)
                 loss.backward()
                 optimizer.step()
+                
+                epoch_loss += loss.item()
+                num_batches += 1
+            
+            avg_loss = epoch_loss / num_batches
+            if (epoch + 1) % 10 == 0:
+                logger.debug(f"Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}")
 
         # Evaluation
+        logger.info("Evaluating model")
         self.model.eval()
         with torch.no_grad():
             X_test_tensor = torch.FloatTensor(self.X_test).to(self.device)
             y_pred = self.model(X_test_tensor).cpu().numpy()
 
-        return calculate_metrics(self.y_test, y_pred)
+        metrics = calculate_metrics(self.y_test, y_pred)
+        logger.info(f"Model performance: {metrics}")
+        return metrics
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Make predictions using the trained model."""
         if self.model is None:
             raise ValueError("Model must be trained before making predictions")
 
+        logger.debug(f"Making predictions for {len(X)} samples")
         self.model.eval()
         with torch.no_grad():
             X_tensor = torch.FloatTensor(X).to(self.device)
@@ -154,4 +187,5 @@ class NeuralEstimator:
         """Save the trained model."""
         if self.model is None:
             raise ValueError("No model to save")
+        logger.info(f"Saving model to {path}")
         torch.save(self.model.state_dict(), path)
