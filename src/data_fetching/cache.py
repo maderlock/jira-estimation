@@ -100,7 +100,6 @@ class DataCache:
         update_func: Optional[callable] = None,
         update_kwargs: Optional[Dict] = None,
         use_cache: bool = True,
-        update_cache: bool = True,
         force_update: bool = False,
     ) -> pd.DataFrame:
         """
@@ -111,8 +110,7 @@ class DataCache:
             update_func: Function to call to update cache if needed
             update_kwargs: Keyword arguments for update function
             use_cache: Whether to use cached data at all
-            update_cache: Whether to check for and fetch updates
-            force_update: Whether to force a full update regardless of timestamps
+            force_update: Whether to force a full update of cache
 
         Returns:
             DataFrame containing cached data
@@ -125,81 +123,44 @@ class DataCache:
             if not update_func:
                 self.logger.warning("Cache disabled but no update function provided")
                 return df
-                
-            self.logger.info("Fetching fresh data" + (" (forced)" if force_update else ""))
-            if update_kwargs is None:
-                update_kwargs = {}
-            df = update_func(**update_kwargs)
-            
-            if df is not None and len(df) > 0:
-                self.save_data(df.to_dict('records'), cache_key, update_kwargs)
-            return df
+            return self._update_cache(cache_key, update_func, update_kwargs, force_update)
         
         # Try to load from cache
         df = self.get_cached_data(cache_key)
-        if df is not None:
-            self.logger.info(f"Retrieved {len(df)} records from cache")
-            
-            # Return cached data if updates are disabled
-            if not update_cache:
-                self.logger.info("Using cached data without updates")
-                # Ensure we don't exceed max_results from cache
-                if len(df) > max_results:
-                    self.logger.debug(f"Trimming cached data to max_results={max_results}")
-                    df = df.head(max_results)
-                return df
+        if df is None:
+            df = self._update_cache(cache_key, update_func, update_kwargs, force_update)
+            if df is None:
+                raise Exception("No cached data found after fetching fresh")
 
-            # Check for updates if update_func is provided
-            if update_func:
-                if update_kwargs is None:
-                    update_kwargs = {}
-                
-                # Calculate remaining results to fetch
-                remaining_results = max(0, max_results - len(df))
-                
-                # First, check for any new updates since last fetch
-                metadata = self._load_metadata()
-                last_update = metadata.get(cache_key, {}).get('created', "1970-01-01 00:00")
-                
-                update_kwargs_with_date = dict(update_kwargs)
-                update_kwargs_with_date["updated_after"] = last_update
-                update_kwargs_with_date["max_results"] = max_results
-                
-                new_df = update_func(**update_kwargs_with_date)
-                if new_df is not None and len(new_df) > 0:
-                    self.logger.info(f"Found {len(new_df)} new updated records")
-                    df = pd.concat([df, new_df], ignore_index=True)
-                    df = df.drop_duplicates(subset=["key"], keep="last")
-                
-                # If we still need more results, fetch without date filter
-                remaining_results = max(0, max_results - len(df))
-                if remaining_results > 0:
-                    self.logger.info(f"Fetching {remaining_results} more records to reach max_results")
-                    update_kwargs_no_date = dict(update_kwargs)
-                    update_kwargs_no_date["max_results"] = remaining_results
-                    update_kwargs_no_date.pop("updated_after", None)  # Remove date filter
-                    
-                    additional_df = update_func(**update_kwargs_no_date)
-                    if additional_df is not None and len(additional_df) > 0:
-                        self.logger.info(f"Found {len(additional_df)} additional records")
-                        df = pd.concat([df, additional_df], ignore_index=True)
-                        df = df.drop_duplicates(subset=["key"], keep="last")
-                
-                # Ensure combined results don't exceed max_results
-                if len(df) > max_results:
-                    self.logger.debug(f"Trimming combined data to max_results={max_results}")
-                    df = df.head(max_results)
-                    
-                self.save_data(df.to_dict('records'), cache_key, update_kwargs)
+        self.logger.info(f"Retrieved {len(df)} records from cache")
         
-        # If no cached data and updates allowed, fetch fresh
-        elif update_func:
-            self.logger.info("No cached data found, fetching fresh")
-            if update_kwargs is None:
-                update_kwargs = {}
-            df = update_func(**update_kwargs)
-            
-            if df is not None and len(df) > 0:
-                self.save_data(df.to_dict('records'), cache_key, update_kwargs)
+        # Return cached data
+        self.logger.info("Using cached data without updates")
+        # Ensure we don't exceed max_results from cache
+        if len(df) > max_results:
+            self.logger.debug(f"Trimming cached data to max_results={max_results}")
+            df = df.head(max_results)
+        return df
+
+    def _update_cache(self, cache_key, update_func, update_kwargs, force_update) -> pd.DataFrame:
+        """
+        Update cache with fresh data.
+
+        Args:
+            cache_key: Key to identify the cached data
+            update_func: Function to call to update cache
+            update_kwargs: Keyword arguments for update function
+            force_update: Whether to force a full update of cache
+
+        Returns:
+            DataFrame containing updated cache
+        """
+        df = pd.DataFrame()
+        self.logger.info("Fetching fresh data" + (" (forced)" if force_update else ""))
+        if update_kwargs is None:
+            update_kwargs = {}
+        df = update_func(**update_kwargs)
         
+        if df is not None and len(df) > 0:
+            self.save_data(df.to_dict('records'), cache_key, update_kwargs)
         return df

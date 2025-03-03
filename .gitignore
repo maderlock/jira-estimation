@@ -41,3 +41,8 @@ notebooks/.ipynb_checkpoints/
 
 # Logs
 *.log
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/

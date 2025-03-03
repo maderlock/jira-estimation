@@ -53,17 +53,11 @@ def test_cache_update_strategy(test_cache_dir):
             {"key": "TEST-1", "summary": "Test 1", "time_spent": 3600},
             {"key": "TEST-2", "summary": "Test 2", "time_spent": 7200},
         ]
-        if updated_after:
-            return pd.DataFrame(base_data[:1])  # Return only first record as "updated"
         return pd.DataFrame(base_data[:max_results if max_results else len(base_data)])
     
     # Test initial load
     df = cache.load("test_query", update_func, {"max_results": 2})
     assert len(df) == 2
-    
-    # Test update with cache
-    df = cache.load("test_query", update_func, {"max_results": 2}, update_cache=True)
-    assert len(df) == 2  # Should maintain max_results limit
     
     # Test force update
     df = cache.load("test_query", update_func, {"max_results": 1}, force_update=True)
@@ -95,10 +89,7 @@ def test_cache_max_results_handling(test_cache_dir):
     data = [{"key": f"TEST-{i}", "summary": f"Test {i}"} for i in range(1, 11)]
     df = pd.DataFrame(data)
     
-    def update_func(max_results=None, updated_after=None):
-        if updated_after:
-            # Simulate no updates
-            return pd.DataFrame()
+    def update_func(max_results=None):
         if max_results:
             return df.head(max_results)
         return df

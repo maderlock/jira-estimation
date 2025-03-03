@@ -86,8 +86,7 @@ def test_fetch_tickets_with_cache(data_fetcher, mock_issues, mock_jira_client):
     df2 = data_fetcher.fetch_tickets(
         project_keys=["TEST"],
         max_results=10,
-        use_cache=True,
-        update_cache=False
+        use_cache=True
     )
     
     assert len(df1) == len(df2)

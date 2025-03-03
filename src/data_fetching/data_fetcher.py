@@ -68,7 +68,6 @@ class JiraDataFetcher:
         exclude_labels: Optional[List[str]] = None,
         include_subtasks: bool = False,
         use_cache: bool = True,
-        update_cache: bool = True,
         force_update: bool = False,
     ) -> pd.DataFrame:
         """
@@ -80,8 +79,7 @@ class JiraDataFetcher:
             exclude_labels: List of labels to exclude from results
             include_subtasks: Whether to include subtasks
             use_cache: Whether to use cached data
-            update_cache: Whether to update cache with new tickets
-            force_update: Whether to force a full update regardless of timestamps
+            force_update: Whether to force a full update of the cache
 
         Returns:
             DataFrame containing ticket data
@@ -90,7 +88,7 @@ class JiraDataFetcher:
             f"Fetching tickets for projects={project_keys}, "
             f"max_results={max_results}, exclude_labels={exclude_labels}, "
             f"include_subtasks={include_subtasks}, use_cache={use_cache}, "
-            f"update_cache={update_cache}, force_update={force_update}")
+            f"force_update={force_update}")
 
         # Get cache key using only essential parameters
         cache_key = self._get_cache_key(project_keys)
@@ -107,7 +105,6 @@ class JiraDataFetcher:
                     "include_subtasks": include_subtasks,
                 },
                 use_cache=use_cache,
-                update_cache=update_cache,
                 force_update=force_update
             )
             if df is not None and len(df) > 0:
@@ -127,7 +124,6 @@ class JiraDataFetcher:
             update_func=self._fetch_issues,
             update_kwargs=fetch_kwargs,
             use_cache=use_cache,
-            update_cache=update_cache,
             force_update=force_update,
         )
 
@@ -136,8 +132,7 @@ class JiraDataFetcher:
         project_keys: Optional[List[str]] = None,
         max_results: int = 1000,
         exclude_labels: Optional[List[str]] = None,
-        include_subtasks: bool = False,
-        updated_after: Optional[str] = None,
+        include_subtasks: bool = False
     ) -> pd.DataFrame:
         """
         Fetch issues from JIRA.
@@ -147,7 +142,6 @@ class JiraDataFetcher:
             max_results: Maximum number of issues to fetch
             exclude_labels: List of labels to exclude
             include_subtasks: Whether to include subtasks
-            updated_after: Only fetch issues updated after this date
 
         Returns:
             DataFrame containing issue data
@@ -160,7 +154,7 @@ class JiraDataFetcher:
         self.logger.debug(
             f"Fetching issues with: projects={project_keys}, "
             f"exclude_labels={exclude_labels}, include_subtasks={include_subtasks}, "
-            f"updated_after={updated_after}, max_results={max_results}")
+            f"max_results={max_results}")
 
         # Build JQL query
         conditions = ["status = Closed", "timespent > 0"]
@@ -175,9 +169,6 @@ class JiraDataFetcher:
             
         if not include_subtasks:
             conditions.append("type != Sub-task")
-            
-        if updated_after:
-            conditions.append(f"updated > '{updated_after}'")
             
         # Add ORDER BY to ensure consistent results when paginating
         jql = " AND ".join(conditions) + " ORDER BY updated DESC"
