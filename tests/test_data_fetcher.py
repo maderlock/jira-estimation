@@ -93,6 +93,69 @@ def test_fetch_tickets_with_cache(data_fetcher, mock_issues, mock_jira_client):
     assert df1['key'].tolist() == df2['key'].tolist()
 
 
+def test_fetch_tickets_bypass_cache(data_fetcher, mock_issues, mock_jira_client):
+    """Test that cache is properly bypassed when specified."""
+    mock_jira_client.issues = mock_issues
+    
+    # Initial fetch with cache
+    df1 = data_fetcher.fetch_tickets(
+        project_keys=["TEST"],
+        max_results=10,
+        use_cache=True
+    )
+    
+    # Modify mock data to simulate JIRA changes
+    new_issues = mock_issues.copy()
+    new_issues.append(
+        MockIssue('TEST-5', {
+            'summary': 'New Test',
+            'description': 'New Description',
+            'created': '2025-01-03T00:00:00.000+0000',
+            'updated': '2025-01-03T00:00:00.000+0000',
+            'timespent': 5400,
+            'timeoriginalestimate': 3600
+        })
+    )
+    mock_jira_client.issues = new_issues
+    
+    # Fetch with cache - should not see new issue
+    df2 = data_fetcher.fetch_tickets(
+        project_keys=["TEST"],
+        max_results=10,
+        use_cache=True
+    )
+    assert len(df2) == len(df1)
+    assert 'TEST-5' not in df2['key'].values
+    
+    # Fetch bypassing cache - should see new issue
+    df3 = data_fetcher.fetch_tickets(
+        project_keys=["TEST"],
+        max_results=10,
+        use_cache=False
+    )
+    assert len(df3) > len(df2)
+    assert 'TEST-5' in df3['key'].values
+    
+    # Force update - should update cache and see new issue
+    df4 = data_fetcher.fetch_tickets(
+        project_keys=["TEST"],
+        max_results=10,
+        use_cache=True,
+        force_update=True
+    )
+    assert len(df4) == len(df3)
+    assert 'TEST-5' in df4['key'].values
+    
+    # Verify cache was updated by force_update
+    df5 = data_fetcher.fetch_tickets(
+        project_keys=["TEST"],
+        max_results=10,
+        use_cache=True
+    )
+    assert len(df5) == len(df4)
+    assert 'TEST-5' in df5['key'].values
+
+
 def test_fetch_tickets_with_filters(data_fetcher, mock_issues, mock_jira_client):
     """Test ticket fetching with various filters."""
     mock_jira_client.issues = mock_issues

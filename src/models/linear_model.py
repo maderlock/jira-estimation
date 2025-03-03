@@ -143,6 +143,23 @@ class LinearEstimator:
             self.logger.info(f"Using {n_splits}-fold cross-validation")
             return self._train_with_cv(X, y, n_splits)
         
+        return self._train_with_single_split(X, y, test_size)
+
+    def _train_with_single_split(
+        self, X: np.ndarray,
+        y: np.ndarray,
+        test_size: Optional[float] = None
+    ) -> Dict[str, float]:
+        """Train and evaluate using a single train/test split.
+
+        Args:
+            X: Feature matrix (embeddings)
+            y: Target values (time_spent)
+            test_size: Proportion of data for testing
+
+        Returns:
+            Dictionary containing evaluation metrics
+        """
         # Prepare train/test split if not done already
         if self.X_train is None:
             self.prepare_data(X, y, test_size)
@@ -150,6 +167,7 @@ class LinearEstimator:
         self.logger.info("Training model on train set")
         self.model.fit(self.X_train, self.y_train)
         
+        self.logger.info("Evaluating model on test set")
         y_pred = self.model.predict(self.X_test)
         metrics = calculate_metrics(self.y_test, y_pred)
         self.logger.info(f"Model performance: {metrics}")
@@ -252,6 +270,12 @@ class LinearEstimator:
         self.logger.info(f"Saving model to {path}")
         import joblib
         joblib.dump(self.model, path)
+
+    def load(self, path: Path) -> None:
+        """Load the trained model."""
+        self.logger.info(f"Loading model from {path}")
+        import joblib
+        self.model = joblib.load(path)
 
     def get_train_test_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
