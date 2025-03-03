@@ -28,6 +28,10 @@ class DataCache:
         self.metadata_file = self.cache_dir / "metadata.json"
         self.logger = logger or logging.getLogger(__name__)
         
+        # Initialize metadata file if it doesn't exist
+        if not self.metadata_file.exists():
+            self._save_metadata({})
+        
         self.logger.debug(f"Initialized data cache in {self.cache_dir}")
 
     def _load_metadata(self) -> Dict:

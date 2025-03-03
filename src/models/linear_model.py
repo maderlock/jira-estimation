@@ -58,11 +58,35 @@ class LinearEstimator:
         # Validate that we have valid Y values
         if len(y) == 0:
             raise ValueError("No training examples provided")
-        if np.any(y <= 0):
-            raise ValueError("Found non-positive time values in training data. All time values must be positive.")
             
-        self.logger.debug(f"Y values before split: {y.tolist()}")
-        self.logger.debug(f"Y stats before split - min: {y.min()}, max: {y.max()}, mean: {y.mean():.2f}")
+        # Log original time distribution
+        self.logger.info(
+            f"Original time distribution (hours) - "
+            f"min: {y.min():.2f}, max: {y.max():.2f}, "
+            f"mean: {y.mean():.2f}, median: {np.median(y):.2f}"
+        )
+        
+        # Filter out invalid time values
+        valid_mask = (y > 0) & (y <= 1040)  # Max 6 months of work
+        if not np.all(valid_mask):
+            invalid_count = np.sum(~valid_mask)
+            self.logger.warning(
+                f"Filtered out {invalid_count} samples with invalid time values "
+                f"(<=0 or >1040 hours)"
+            )
+            X = X[valid_mask]
+            y = y[valid_mask]
+            
+        if len(y) == 0:
+            raise ValueError("No valid training examples after filtering")
+            
+        # Log filtered time distribution
+        self.logger.info(
+            f"Filtered time distribution (hours) - "
+            f"min: {y.min():.2f}, max: {y.max():.2f}, "
+            f"mean: {y.mean():.2f}, median: {np.median(y):.2f}"
+        )
+            
         self.logger.debug(f"Input shapes - X: {X.shape}, y: {y.shape}")
         
         indices = np.arange(len(X))
@@ -75,10 +99,19 @@ class LinearEstimator:
         # Transform test data using training statistics
         self.X_test = self.scaler.transform(self.X_test)
         
-        self.logger.debug(f"Y values after split - train: {self.y_train.tolist()}, test: {self.y_test.tolist()}")
-        self.logger.debug(f"Y stats after split - train: min: {self.y_train.min()}, max: {self.y_train.max()}, mean: {self.y_train.mean():.2f}, test: min: {self.y_test.min()}, max: {self.y_test.max()}, mean: {self.y_test.mean():.2f}")
+        self.logger.debug(
+            f"Train time stats - "
+            f"min: {self.y_train.min():.2f}, max: {self.y_train.max():.2f}, "
+            f"mean: {self.y_train.mean():.2f}, median: {np.median(self.y_train):.2f}"
+        )
+        self.logger.debug(
+            f"Test time stats - "
+            f"min: {self.y_test.min():.2f}, max: {self.y_test.max():.2f}, "
+            f"mean: {self.y_test.mean():.2f}, median: {np.median(self.y_test):.2f}"
+        )
         self.logger.debug(f"Train shapes - X: {self.X_train.shape}, y: {self.y_train.shape}")
         self.logger.debug(f"Test shapes - X: {self.X_test.shape}, y: {self.y_test.shape}")
+        
         return self.X_train, self.X_test, self.y_train, self.y_test
 
     def train(
@@ -166,45 +199,53 @@ class LinearEstimator:
             X = np.array(X)
         return self.model.predict(self.scaler.transform(X))
 
-    def show_examples(self, titles: List[str], descriptions: List[str], y_true: np.ndarray, y_pred: np.ndarray, n_examples: int = 3) -> None:
+    def show_examples(
+        self,
+        titles: List[str],
+        descriptions: List[str],
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        num_examples: int = 5
+    ) -> None:
         """
-        Show best, median and worst predictions.
-        
+        Show example predictions.
+
         Args:
             titles: List of ticket titles
             descriptions: List of ticket descriptions
-            y_true: True values
-            y_pred: Predicted values
-            n_examples: Number of examples to show (default 3: best, median, worst)
+            y_true: True time values (in hours)
+            y_pred: Predicted time values (in hours)
+            num_examples: Number of examples to show
         """
-        # Get absolute errors
-        errors = np.abs(y_true - y_pred)
-        
-        # Get indices for best, median and worst predictions
-        best_idx = np.argmin(errors)
-        worst_idx = np.argmax(errors)
-        median_idx = np.argsort(errors)[len(errors)//2]
-        
-        example_indices = [best_idx, median_idx, worst_idx]
-        labels = ["Best", "Median", "Worst"]
-        
-        self.logger.info("\nExample Predictions:")
-        for idx, label in zip(example_indices, labels):
-            # Convert hours to hours and minutes
-            true_hours = int(y_true[idx])
-            true_mins = int((y_true[idx] - true_hours) * 60)
-            pred_hours = int(y_pred[idx])
-            pred_mins = int((y_pred[idx] - pred_hours) * 60)
+        if len(y_true) == 0:
+            self.logger.warning("No examples to show")
+            return
             
-            # Get first few lines of description
-            desc_preview = "\n".join(descriptions[idx].split("\n")[:3])
+        num_examples = min(num_examples, len(y_true))
+        indices = np.random.choice(len(y_true), num_examples, replace=False)
+        
+        def format_time(hours: float) -> str:
+            """Format time in hours to a readable string."""
+            if hours < 1:
+                return f"{int(hours * 60)}m"
+            else:
+                h = int(hours)
+                m = int((hours - h) * 60)
+                return f"{h}h{m:02d}m"
+        
+        for i in indices:
+            title = titles[i] if i < len(titles) else "N/A"
+            description = descriptions[i] if i < len(descriptions) else "N/A"
+            true_time = y_true[i]
+            pred_time = y_pred[i]
+            error = abs(true_time - pred_time)
+            error_percent = (error / true_time) * 100 if true_time > 0 else float('inf')
             
-            self.logger.info(f"\n{label} Prediction:")
-            self.logger.info(f"Title: {titles[idx]}")
-            self.logger.info(f"Description (first 3 lines):\n{desc_preview}")
-            self.logger.info(f"True time: {true_hours}h{true_mins:02d}m")
-            self.logger.info(f"Predicted: {pred_hours}h{pred_mins:02d}m")
-            self.logger.info(f"Error: {errors[idx]:.2f} hours")
+            self.logger.info(f"\nTicket: {title}")
+            self.logger.info(f"Description: {description[:200]}...")
+            self.logger.info(f"True time: {format_time(true_time)} ({true_time:.2f} hours)")
+            self.logger.info(f"Predicted time: {format_time(pred_time)} ({pred_time:.2f} hours)")
+            self.logger.info(f"Error: {format_time(error)} ({error:.2f} hours, {error_percent:.1f}%)")
 
     def save(self, path: Path) -> None:
         """Save the trained model."""
@@ -214,11 +255,12 @@ class LinearEstimator:
 
     def get_train_test_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        Get the train/test split data.
-        
+        Get the train/test split data and indices.
+
         Returns:
             Tuple of (X_train, X_test, y_train, y_test, train_indices, test_indices)
         """
-        if not hasattr(self, '_train_indices') or not hasattr(self, '_test_indices'):
-            raise RuntimeError("Model has not been trained yet. Call train() first.")
+        if self.X_train is None or self.X_test is None or self.y_train is None or self.y_test is None:
+            raise ValueError("Data has not been prepared yet. Call prepare_data first.")
+            
         return self.X_train, self.X_test, self.y_train, self.y_test, self._train_indices, self._test_indices

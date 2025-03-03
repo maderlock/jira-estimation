@@ -184,8 +184,8 @@ def main(args: argparse.Namespace) -> None:
         # Show example predictions
         logger.info("\nExample Predictions from Test Set:")
         model.show_examples(
-            titles=df.loc[test_indices, "summary"].tolist(),
-            descriptions=df.loc[test_indices, "description"].tolist(),
+            titles=[df.iloc[i]["summary"] for i in test_indices],
+            descriptions=[df.iloc[i]["description"] for i in test_indices],
             y_true=y_test,
             y_pred=model.predict(X_test)
         )

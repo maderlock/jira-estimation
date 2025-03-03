@@ -152,8 +152,8 @@ class TextProcessor:
         tokens = self.tokenizer.encode(text)
         if len(tokens) <= self.token_limit:
             return text
-        
-        self.logger.debug(f"Truncating text from {len(tokens)} tokens to {self.token_limit}")
+            
+        # Decode truncated tokens back to text
         return self.tokenizer.decode(tokens[:self.token_limit])
 
     def chunk_text(self, text: str, overlap: int = 100) -> List[str]:
@@ -167,35 +167,29 @@ class TextProcessor:
         Returns:
             List of text chunks
         """
-        if not text or text.isspace():
-            self.logger.warning("Empty or whitespace-only text provided to chunk_text")
-            return []
-            
-        # Clean text
-        text = text.strip()
         if not text:
-            self.logger.warning("Text was empty after stripping whitespace")
             return []
             
         tokens = self.tokenizer.encode(text)
         if len(tokens) <= self.token_limit:
             return [text]
-        
+            
         chunks = []
-        chunk_size = self.token_limit
         start = 0
         
         while start < len(tokens):
-            end = min(start + chunk_size, len(tokens))
+            # Get chunk that fits within token limit
+            end = start + self.token_limit
+            
+            # Decode chunk back to text
             chunk = self.tokenizer.decode(tokens[start:end])
-            if chunk.strip():  # Only add non-empty chunks
-                chunks.append(chunk)
-            # Move start position accounting for overlap
-            start = end - overlap if end < len(tokens) else len(tokens)
-        
-        self.logger.debug(f"Split text into {len(chunks)} chunks with {overlap} token overlap")
+            chunks.append(chunk)
+            
+            # Move start position, accounting for overlap
+            start = end - overlap
+            
         return chunks
-        
+
     def combine_embeddings_with_attention(
         self, 
         embeddings: List[np.ndarray], 
@@ -236,60 +230,6 @@ class TextProcessor:
         
         self.logger.debug(f"Combined {len(embeddings)} embeddings with attention weights: {weights}")
         return combined
-
-    def process_text(
-        self, 
-        text: str, 
-        query: str,
-        metadata: Optional[Dict] = None,
-        chunk_overlap: int = 100,
-        temperature: float = 1.0
-    ) -> np.ndarray:
-        """
-        Process a single text, using chunking and attention for long content.
-        
-        Args:
-            text: Main text to process
-            query: Query text (e.g. ticket summary) for attention mechanism
-            metadata: Optional metadata for caching
-            chunk_overlap: Token overlap between chunks
-            temperature: Temperature for attention mechanism
-            
-        Returns:
-            Final embedding
-        """
-        # Handle empty text
-        if not text or text.isspace():
-            self.logger.warning(f"Empty text received for query: {query[:100]}...")
-            # Use query embedding as fallback
-            return self.get_embeddings([query], metadata=[metadata] if metadata else None)[0]
-        
-        # Get query embedding first
-        query_emb = self.get_embeddings([query], metadata=[metadata] if metadata else None)[0]
-        
-        # Split into chunks if needed
-        chunks = self.chunk_text(text, overlap=chunk_overlap)
-        if not chunks:
-            self.logger.warning(f"No valid chunks found for text. Using query embedding as fallback. Query: {query[:100]}...")
-            return query_emb
-        
-        # Get embeddings for all chunks
-        chunk_metadata = None
-        if metadata:
-            # Create metadata for each chunk
-            chunk_metadata = [
-                {**metadata, 'chunk_index': i, 'total_chunks': len(chunks)}
-                for i in range(len(chunks))
-            ]
-        
-        chunk_embeddings = self.get_embeddings(chunks, metadata=chunk_metadata)
-        
-        # Combine using attention
-        return self.combine_embeddings_with_attention(
-            chunk_embeddings,
-            query_emb,
-            temperature=temperature
-        )
 
     def get_embeddings(
         self,
@@ -349,7 +289,7 @@ class TextProcessor:
                 model=self.model
             )
             new_embeddings = [item.embedding for item in response.data]
-            
+             
             # Save new embeddings to cache if we have document IDs
             if doc_ids:
                 new_doc_ids = [doc_ids[i] for i in missing_indices]

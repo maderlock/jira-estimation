@@ -200,9 +200,28 @@ class JiraDataFetcher:
         for issue in issues:
             fields = issue.fields
                 
-            # Get time estimates in hours
-            original_estimate = fields.timeoriginalestimate / 3600 if fields.timeoriginalestimate else 0
-            time_spent = fields.timespent / 3600 if fields.timespent else 0
+            # Get time values in seconds
+            original_estimate_sec = fields.timeoriginalestimate if fields.timeoriginalestimate else 0
+            time_spent_sec = fields.timespent if fields.timespent else 0
+            
+            # Convert to hours and validate
+            original_estimate = original_estimate_sec / 3600
+            time_spent = time_spent_sec / 3600
+            
+            # Skip tickets with unreasonable time values
+            # Assuming a ticket shouldn't take more than 6 months of work (1040 hours)
+            if time_spent <= 0 or time_spent > 1040:
+                self.logger.debug(f"Skipping ticket {issue.key} with invalid time_spent: {time_spent:.2f} hours")
+                continue
+                
+            # Log time values for debugging
+            self.logger.debug(
+                f"Ticket {issue.key} times - "
+                f"Original (sec): {original_estimate_sec}, "
+                f"Spent (sec): {time_spent_sec}, "
+                f"Original (hours): {original_estimate:.2f}, "
+                f"Spent (hours): {time_spent:.2f}"
+            )
             
             # Strip out unnecessary formatting from text fields
             summary = self.text_processor.strip_formatting(getattr(fields, 'summary', ''))
@@ -226,4 +245,18 @@ class JiraDataFetcher:
                 self.logger.debug(f"Reached max_results limit of {max_results}")
                 break
             
-        return pd.DataFrame(data)
+        df = pd.DataFrame(data)
+        
+        if not df.empty:
+            # Log time value statistics
+            self.logger.info(
+                f"Time statistics (hours) - "
+                f"Original estimate: min={df['original_estimate'].min():.2f}, "
+                f"max={df['original_estimate'].max():.2f}, "
+                f"mean={df['original_estimate'].mean():.2f}, "
+                f"Time spent: min={df['time_spent'].min():.2f}, "
+                f"max={df['time_spent'].max():.2f}, "
+                f"mean={df['time_spent'].mean():.2f}"
+            )
+            
+        return df
