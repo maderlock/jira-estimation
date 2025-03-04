@@ -5,7 +5,7 @@ Machine learning system to predict JIRA ticket completion times using embeddings
 ## Features
 
 - Automatic time estimation for JIRA tickets using ML
-- Support for both linear regression and neural network models
+- Support for both linear regression, random forest, and neural network models
 - Text embedding generation using OpenAI's API
 - Efficient data caching and incremental updates
 - Cross-validation support for model evaluation
@@ -17,6 +17,7 @@ Machine learning system to predict JIRA ticket completion times using embeddings
 src/
 ├── models/
 │   ├── linear_model.py    # Linear regression implementation
+│   ├── random_forest_model.py    # Random forest implementation
 │   └── neural_model.py    # Neural network implementation
 ├── data_fetcher.py        # JIRA data fetching and caching
 ├── text_processor.py      # Text processing and embeddings
@@ -66,6 +67,7 @@ Optional:
   * `DEFAULT_EPOCHS`: Training epochs for neural network (default: 100)
   * `DEFAULT_BATCH_SIZE`: Batch size for neural network (default: 32)
   * `DEFAULT_LEARNING_RATE`: Learning rate for neural network (default: 0.001)
+  * `DEFAULT_N_ESTIMATORS`: Number of trees in the forest (default: 100)
 
 ## Usage
 
@@ -106,32 +108,54 @@ python src/main.py --project-keys PROJECT1
 
 ### Model Options
 
-- `--model-type`: Choose model type (`linear` or `neural`, default: linear)
+- `--model-type`: Choose model type (`linear`, `random_forest`, or `neural`, default: from env)
 - `--test-size`: Proportion of data for testing (default: from env)
 - `--use-cv`: Use cross-validation (linear model only)
 - `--cv-splits`: Number of CV splits (default: from env)
+- `--random-seed`: Random seed for reproducibility (default: from env)
+
+Random Forest Specific:
+- `--n-estimators`: Number of trees in the forest (default: from env)
 
 Neural Network Specific:
 - `--epochs`: Training epochs (default: from env)
 - `--batch-size`: Batch size (default: from env)
 - `--learning-rate`: Learning rate (default: from env)
+- `--hidden-size`: Hidden layer size (default: 128)
+- `--num-layers`: Number of hidden layers (default: 1)
+- `--dropout`: Dropout rate (default: 0.2)
 
 ### Examples
 
 Train a linear model with cross-validation:
 ```bash
-python src/main.py --project-keys PROJECT1 --use-cv --cv-splits 5
+python src/main.py --project-keys PROJECT1 --model-type linear --use-cv --cv-splits 5
+```
+
+Train a random forest model:
+```bash
+python src/main.py --project-keys PROJECT1 --model-type random_forest --n-estimators 100
 ```
 
 Train a neural network:
 ```bash
-python src/main.py --project-keys PROJECT1 --model-type neural --epochs 200
+python src/main.py --project-keys PROJECT1 --model-type neural --epochs 200 --hidden-size 256
 ```
 
 Fetch fresh data without using cache:
 ```bash
 python src/main.py --project-keys PROJECT1 --no-cache
 ```
+
+### Hyperparameter Tuning
+
+For random forest models, you can use the tuning script to find optimal hyperparameters:
+
+```bash
+python src/tune_random_forest.py --project-keys PROJECT1
+```
+
+This will suggest the optimal number of estimators to use with the main script.
 
 ## Model Performance
 
@@ -146,6 +170,7 @@ For linear models with cross-validation, it also provides standard deviations of
 
 - Models are saved in the `models/` directory with appropriate extensions:
   - Linear models: `.pkl`
+  - Random forest models: `.pkl`
   - Neural networks: `.pt`
 - JIRA data cache is stored in `data/jira_cache/`
 - Logging level can be controlled via environment or `--log-level`

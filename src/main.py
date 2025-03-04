@@ -22,6 +22,8 @@ from utils import get_model_config, setup_logging, load_environment, get_jira_cr
 
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
+    # Load environment variables
+    load_environment()
     model_config = get_model_config()
     
     parser = argparse.ArgumentParser(description="JIRA ticket time estimation")
@@ -34,10 +36,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force-update", action="store_true", help="Force full update of cached data")
     # Model arguments
     parser.add_argument("--test-size", type=float, default=model_config.test_size, help="Test set size")
-    parser.add_argument("--model-type", choices=["linear", "random_forest", "neural"], default=model_config.model_type,
+    parser.add_argument("--model-type", default=model_config.model_type, choices=["linear", "random_forest", "neural"],
                       help="Model type (linear, random_forest or neural)")
     parser.add_argument("--use-cv", action="store_true", help="Use cross-validation (linear only)")
     parser.add_argument("--cv-splits", type=int, default=model_config.cv_splits, help="Number of CV splits")
+    parser.add_argument("--random-seed", type=int, default=model_config.random_seed, help="Random seed")
+    parser.add_argument("--n-estimators", type=int, default=model_config.n_estimators,
+                      help="Number of estimators for random forest (overrides environment variable)")
     parser.add_argument("--epochs", type=int, default=model_config.epochs, help="Training epochs (neural only)")
     parser.add_argument("--batch-size", type=int, default=model_config.batch_size, help="Batch size (neural only)")
     parser.add_argument("--learning-rate", type=float, default=model_config.learning_rate, help="Learning rate (neural only)")
@@ -150,8 +155,8 @@ def main(args: argparse.Namespace) -> None:
             model = LinearRegression()
         elif args.model_type == "random_forest":
             model = RandomForestRegressor(
-                n_estimators=get_model_config().n_estimators,
-                random_state=get_model_config().random_seed
+                n_estimators=args.n_estimators,
+                random_state=args.random_seed
             )
         else:
             model = MLPRegressor()
@@ -207,7 +212,5 @@ def main(args: argparse.Namespace) -> None:
 
 
 if __name__ == "__main__":
-    # Load environment variables
-    load_environment()
     args = parse_args()
     sys.exit(main(args))
