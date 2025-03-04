@@ -163,14 +163,37 @@ class JiraDataFetcher:
         # Fetch issues from JIRA
         issues = []
         try:
-            issues = self.jira.search_issues(
-                jql=jql,
-                maxResults=max_results,
-                fields=[
-                    'summary', 'description', 'created', 'updated',
-                    'timespent', 'timeoriginalestimate'
-                ]
-            )
+            # Handle pagination - JIRA API limit is 100 per request
+            start_at = 0
+            batch_size = min(max_results, 100)
+            
+            while start_at < max_results:
+                self.logger.debug(f"Fetching batch starting at {start_at}")
+                batch = self.jira.search_issues(
+                    jql_str=jql,
+                    startAt=start_at,
+                    maxResults=batch_size,
+                    fields=[
+                        'summary', 'description', 'created', 'updated',
+                        'timespent', 'timeoriginalestimate'
+                    ]
+                )
+                
+                if not batch:
+                    break
+                    
+                issues.extend(batch)
+                start_at += len(batch)
+                
+                # If we got fewer issues than requested, we've hit the end
+                if len(batch) < batch_size:
+                    break
+                    
+                # If we've got enough issues, stop fetching
+                if len(issues) >= max_results:
+                    break
+                    
+            self.logger.debug(f"Retrieved {len(issues)} issues from JIRA")
         except Exception as e:
             self.logger.error(f"Error fetching JIRA issues: {e}")
             return pd.DataFrame()
