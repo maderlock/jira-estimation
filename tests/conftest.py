@@ -46,8 +46,8 @@ class MockJiraClient:
     def __init__(self, issues=None):
         self.issues = issues or []
         
-    def search_issues(self, jql, maxResults=None, startAt=0, fields=None):
-        """Mock search_issues method."""
+    def search_issues(self, jql_str, maxResults=None, startAt=0, fields=None):
+        """Mock search_issues method to match JIRA API."""
         if maxResults:
             return self.issues[startAt:startAt + maxResults]
         return self.issues[startAt:]
