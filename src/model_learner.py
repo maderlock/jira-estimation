@@ -72,7 +72,7 @@ class ModelLearner:
         self.logger.debug(f"Input shapes - X: {X.shape}, y: {y.shape}")
 
         # Filter invalid times
-        valid_mask = (y > 0) & (y <= 1000)  # Times must be positive and reasonable
+        valid_mask = (y > 0) & (y <= 1000)  # Times must be positive and <= 1000 hours
         if not np.any(valid_mask):
             raise ValueError("No valid training examples after filtering")
             
@@ -167,6 +167,13 @@ class ModelLearner:
         """Train and evaluate using cross-validation."""
         self.logger.debug("Starting cross-validation")
 
+        # First prepare data to validate and filter times
+        self.prepare_data(X, y, test_size=0.2)  # test_size doesn't matter here, just for validation
+        
+        # Get the filtered data
+        X = np.vstack((self.X_train, self.X_test))  # Combine back train/test after scaling
+        y = np.concatenate((self.y_train, self.y_test))
+        
         # Define scoring metrics
         scoring = {
             'r2': 'r2',
@@ -174,16 +181,23 @@ class ModelLearner:
             'rmse': 'neg_root_mean_squared_error'
         }
 
-        # Perform cross-validation
+        # Create a pipeline that includes scaling
+        from sklearn.pipeline import Pipeline
+        pipeline = Pipeline([
+            ('scaler', StandardScaler()),
+            ('model', self.model)
+        ])
+
+        # Perform cross-validation with scaling in each fold
         cv_results = cross_validate(
-            self.model,
+            pipeline,
             X,
             y,
             cv=KFold(n_splits=n_splits, shuffle=True, random_state=self.config.random_seed),
             scoring=scoring,
             return_train_score=True
         )
-
+        
         # Convert results to positive values where needed
         metrics = {
             'cv_r2_mean': cv_results['test_r2'].mean(),
@@ -198,7 +212,9 @@ class ModelLearner:
         
         # Train final model on full dataset
         self.logger.info("Training final model on full dataset")
-        self.model.fit(X, y)
+        pipeline.fit(X, y)
+        self.model = pipeline.named_steps['model']  # Keep the trained model
+        self.scaler = pipeline.named_steps['scaler']  # Keep the final scaler
         return metrics
 
     def predict(self, X: np.ndarray) -> np.ndarray:
@@ -256,24 +272,26 @@ class ModelLearner:
             self.logger.info(f"Error: {format_time(error)} ({error:.2f} hours, {error_percent:.1f}%)")
 
     def save(self, path: Path) -> None:
-        """Save the trained model to disk.
+        """Save the trained model and scaler to disk.
         
         Args:
-            path: Path where to save the model
+            path: Path where to save the model and scaler
         """
         import joblib
-        self.logger.info(f"Saving model to {path}")
-        joblib.dump(self.model, path)
+        self.logger.info(f"Saving model and scaler to {path}")
+        # Save both model and scaler to maintain preprocessing parameters
+        joblib.dump((self.model, self.scaler), path)
 
     def load(self, path: Path) -> None:
-        """Load a trained model from disk.
+        """Load a trained model and scaler from disk.
         
         Args:
-            path: Path to the saved model
+            path: Path to the saved model and scaler
         """
         import joblib
-        self.logger.info(f"Loading model from {path}")
-        self.model = joblib.load(path)
+        self.logger.info(f"Loading model and scaler from {path}")
+        # Load both model and scaler to ensure consistent preprocessing
+        self.model, self.scaler = joblib.load(path)
 
     def get_train_test_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """

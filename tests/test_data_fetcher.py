@@ -205,3 +205,70 @@ def test_fetch_tickets_time_validation(data_fetcher, mock_issues, mock_jira_clie
     assert len(df) == 3
     assert 'TEST-5' not in df['key'].values
     assert df['time_spent'].max() <= 1040  # Maximum allowed hours
+
+
+def test_fetch_tickets_max_results_exceeds_cache(data_fetcher, mock_issues, mock_jira_client):
+    """Test fetching more tickets than are in cache."""
+    # Initial fetch with small max_results
+    mock_jira_client.issues = mock_issues
+    df1 = data_fetcher.fetch_tickets(
+        project_keys=["TEST"],
+        max_results=2,  # Only get 2 initially
+        use_cache=True
+    )
+    assert len(df1) == 2
+    
+    # Add more issues to JIRA
+    new_issues = mock_issues.copy()
+    for i in range(5, 8):
+        new_issues.append(
+            MockIssue(f'TEST-{i}', {
+                'summary': f'Test {i}',
+                'description': f'Description {i}',
+                'created': '2025-01-03T00:00:00.000+0000',
+                'updated': '2025-01-03T00:00:00.000+0000',
+                'timespent': 3600,
+                'timeoriginalestimate': 3600
+            })
+        )
+    mock_jira_client.issues = new_issues
+    
+    # Request more results than are in cache
+    df2 = data_fetcher.fetch_tickets(
+        project_keys=["TEST"],
+        max_results=5,  # Request more than cached
+        use_cache=True
+    )
+    assert len(df2) == 4  # Should fetch more to meet max_results (excluding TEST-3 with 0 time)
+    
+    # Request more than available
+    df3 = data_fetcher.fetch_tickets(
+        project_keys=["TEST"],
+        max_results=10,  # Request more than exist
+        use_cache=True
+    )
+    assert len(df3) == 6  # Should get all valid issues (excluding TEST-3 with 0 time)
+
+
+def test_fetch_tickets_partial_cache_update(data_fetcher, mock_issues, mock_jira_client):
+    """Test updating cache when some results exist but more are needed."""
+    # Initial fetch with small max_results
+    mock_jira_client.issues = mock_issues[:2]  # Only first 2 issues
+    df1 = data_fetcher.fetch_tickets(
+        project_keys=["TEST"],
+        max_results=2,
+        use_cache=True
+    )
+    assert len(df1) == 2
+    
+    # Update JIRA with more issues
+    mock_jira_client.issues = mock_issues  # All issues
+    
+    # Request more results - should update cache with new issues
+    df2 = data_fetcher.fetch_tickets(
+        project_keys=["TEST"],
+        max_results=4,
+        use_cache=True
+    )
+    assert len(df2) == 3  # Should get all valid issues (excluding TEST-3)
+    assert set(df2['key'].values) == {'TEST-1', 'TEST-2', 'TEST-4'}

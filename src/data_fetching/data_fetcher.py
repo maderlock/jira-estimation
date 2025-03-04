@@ -46,7 +46,7 @@ class JiraDataFetcher:
         """
         Generate a cache key for the given parameters.
         Only uses essential parameters that affect the data content.
-        
+
         Args:
             project_keys: List of project keys to fetch tickets from
             **kwargs: Additional parameters (ignored for caching)
@@ -54,7 +54,6 @@ class JiraDataFetcher:
         Returns:
             Cache key string
         """
-        # Only use project keys for cache key to maximize cache reuse
         key_parts = []
         if project_keys:
             key_parts.append(f"projects={','.join(sorted(project_keys))}")
@@ -65,9 +64,9 @@ class JiraDataFetcher:
         self,
         project_keys: Optional[List[str]] = None,
         max_results: int = 1000,
+        use_cache: bool = True,
         exclude_labels: Optional[List[str]] = None,
         include_subtasks: bool = False,
-        use_cache: bool = True,
         force_update: bool = False,
     ) -> pd.DataFrame:
         """
@@ -76,40 +75,21 @@ class JiraDataFetcher:
         Args:
             project_keys: List of JIRA project keys to fetch tickets from
             max_results: Maximum number of tickets to fetch
+            use_cache: Whether to use cached data
             exclude_labels: List of labels to exclude from results
             include_subtasks: Whether to include subtasks
-            use_cache: Whether to use cached data
             force_update: Whether to force a full update of the cache
 
         Returns:
             DataFrame containing ticket data
         """
-        self.logger.info(
-            f"Fetching tickets for projects={project_keys}, "
-            f"max_results={max_results}, exclude_labels={exclude_labels}, "
-            f"include_subtasks={include_subtasks}, use_cache={use_cache}, "
-            f"force_update={force_update}")
-
-        # Get cache key using only essential parameters
+        df = None
+        if project_keys is None:
+            project_keys = []
+            
+        # Generate cache key based on project keys
         cache_key = self._get_cache_key(project_keys)
         
-        # Try to load from cache
-        if use_cache and not force_update:
-            df = self.cache.load(
-                cache_key,
-                self._fetch_issues,
-                {
-                    "project_keys": project_keys,
-                    "max_results": max_results,
-                    "exclude_labels": exclude_labels,
-                    "include_subtasks": include_subtasks,
-                },
-                use_cache=use_cache,
-                force_update=force_update
-            )
-            if df is not None and len(df) > 0:
-                return df
-
         # Prepare fetch parameters
         fetch_kwargs = {
             "project_keys": project_keys,
@@ -118,14 +98,24 @@ class JiraDataFetcher:
             "include_subtasks": include_subtasks,
         }
         
-        # Load from cache if possible, or use this class as callback
-        return self.cache.load(
-            cache_key=cache_key,
-            update_func=self._fetch_issues,
-            update_kwargs=fetch_kwargs,
+        # Try to load from cache
+        df = self.cache.load(
+            cache_key,
+            self._fetch_issues,
+            fetch_kwargs,
             use_cache=use_cache,
-            force_update=force_update,
+            force_update=force_update
         )
+        
+        # Always return a DataFrame, even if empty
+        if df is None:
+            df = pd.DataFrame()
+        
+        # Ensure we don't exceed max_results
+        if len(df) > max_results:
+            df = df.head(max_results)
+        
+        return df
 
     def _fetch_issues(
         self,
@@ -152,102 +142,65 @@ class JiraDataFetcher:
             max_results = 1000
         
         self.logger.debug(
-            f"Fetching issues with: projects={project_keys}, "
-            f"exclude_labels={exclude_labels}, include_subtasks={include_subtasks}, "
-            f"max_results={max_results}")
-
-        # Build JQL query
-        conditions = ["status = Closed", "timespent > 0"]
-        
-        if project_keys:
-            project_keys_str = ",".join(project_keys)
-            conditions.append(f"project in ({project_keys_str})")
-            
-        if exclude_labels:
-            labels_str = ",".join(exclude_labels)
-            conditions.append(f"labels not in ({labels_str})")
-            
-        if not include_subtasks:
-            conditions.append("type != Sub-task")
-            
-        # Add ORDER BY to ensure consistent results when paginating
-        jql = " AND ".join(conditions) + " ORDER BY updated DESC"
-        
-        self.logger.debug(f"JQL: {jql}")
-        
-        # Fetch issues
-        issues = self.jira.search_issues(
-            jql,
-            maxResults=max_results,
-            fields="summary,description,created,updated,timeoriginalestimate,timespent",
+            f"Fetching issues with max_results={max_results}, "
+            f"project_keys={project_keys}, exclude_labels={exclude_labels}, "
+            f"include_subtasks={include_subtasks}"
         )
         
-        if not issues:
-            self.logger.info("No issues found")
+        # Build JQL query
+        jql_parts = []
+        if project_keys:
+            jql_parts.append(f"project in ({','.join(project_keys)})")
+        if exclude_labels:
+            jql_parts.append(f"labels not in ({','.join(exclude_labels)})")
+        if not include_subtasks:
+            jql_parts.append("type != Sub-task")
+        jql_parts.append("status in (Closed)")  # Only completed tickets
+        jql_parts.append("timespent > 0")
+        
+        jql = " AND ".join(jql_parts) if jql_parts else ""
+        
+        # Fetch issues from JIRA
+        issues = []
+        try:
+            issues = self.jira.search_issues(
+                jql=jql,
+                maxResults=max_results,
+                fields=[
+                    'summary', 'description', 'created', 'updated',
+                    'timespent', 'timeoriginalestimate'
+                ]
+            )
+        except Exception as e:
+            self.logger.error(f"Error fetching JIRA issues: {e}")
             return pd.DataFrame()
         
-        # Process issues
-        data = []
+        # Process issues into records
+        records = []
         for issue in issues:
-            fields = issue.fields
-                
-            # Get time values in seconds
-            original_estimate_sec = fields.timeoriginalestimate if fields.timeoriginalestimate else 0
-            time_spent_sec = fields.timespent if fields.timespent else 0
+            time_spent = issue.fields.timespent / 3600 if issue.fields.timespent else 0
+            original_estimate = (
+                issue.fields.timeoriginalestimate / 3600
+                if issue.fields.timeoriginalestimate else 0
+            )
             
-            # Convert to hours and validate
-            original_estimate = original_estimate_sec / 3600
-            time_spent = time_spent_sec / 3600
-            
-            # Skip tickets with unreasonable time values
-            # Assuming a ticket shouldn't take more than 6 months of work (1040 hours)
-            if time_spent <= 0 or time_spent > 1040:
-                self.logger.debug(f"Skipping ticket {issue.key} with invalid time_spent: {time_spent:.2f} hours")
+            # Skip issues with invalid time values
+            if time_spent <= 0 or time_spent > 1040:  # Max 6 months (1040 hours)
+                self.logger.debug(
+                    f"Skipping issue {issue.key} due to invalid time: {time_spent}"
+                )
                 continue
-                
-            # Log time values for debugging
-            self.logger.debug(
-                f"Ticket {issue.key} times - "
-                f"Original (sec): {original_estimate_sec}, "
-                f"Spent (sec): {time_spent_sec}, "
-                f"Original (hours): {original_estimate:.2f}, "
-                f"Spent (hours): {time_spent:.2f}"
-            )
             
-            # Strip out unnecessary formatting from text fields
-            summary = self.text_processor.strip_formatting(getattr(fields, 'summary', ''))
-            description = self.text_processor.strip_formatting(getattr(fields, 'description', ''))
-
-            # Append data
-            data.append({
-                "key": issue.key,
-                "summary": summary,
-                "description": description,
-                "created": fields.created,
-                "updated": fields.updated,
-                "original_estimate": original_estimate,
-                "time_spent": time_spent,
+            records.append({
+                'key': issue.key,
+                'summary': self.text_processor.strip_formatting(issue.fields.summary),
+                'description': self.text_processor.strip_formatting(
+                    issue.fields.description or ""
+                ),
+                'created': issue.fields.created,
+                'updated': issue.fields.updated,
+                'original_estimate': original_estimate,
+                'time_spent': time_spent,
             })
-
-            self.logger.debug(f"Fetched issue {issue.key}: {data[-1]}")
-            
-            # Break if we've reached max_results
-            if len(data) >= max_results:
-                self.logger.debug(f"Reached max_results limit of {max_results}")
-                break
-            
-        df = pd.DataFrame(data)
         
-        if not df.empty:
-            # Log time value statistics
-            self.logger.info(
-                f"Time statistics (hours) - "
-                f"Original estimate: min={df['original_estimate'].min():.2f}, "
-                f"max={df['original_estimate'].max():.2f}, "
-                f"mean={df['original_estimate'].mean():.2f}, "
-                f"Time spent: min={df['time_spent'].min():.2f}, "
-                f"max={df['time_spent'].max():.2f}, "
-                f"mean={df['time_spent'].mean():.2f}"
-            )
-            
-        return df
+        return pd.DataFrame(records)

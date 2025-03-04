@@ -98,10 +98,11 @@ def test_cache_max_results_handling(test_cache_dir):
     df1 = cache.load("test_query", update_func, {"max_results": 5})
     assert len(df1) == 5
     
-    # Fetch with larger max_results should still return original cached amount
+    # Fetch with larger max_results should return more as it will request more
     df2 = cache.load("test_query", update_func, {"max_results": 10})
-    assert len(df2) == 5  # Should match original cached amount
+    assert len(df2) == 10  # Should match original cached amount
     
     # Force update to get more results
+    #TODO: change the data and see if we get the updated data after forced update
     df3 = cache.load("test_query", update_func, {"max_results": 10}, force_update=True)
     assert len(df3) == 10

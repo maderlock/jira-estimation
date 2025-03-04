@@ -131,6 +131,76 @@ def test_train_with_cv(model_learner, mock_embeddings, mock_times):
     assert metrics['cv_rmse_std'] >= 0
 
 
+def test_train_with_cv_invalid_times(model_learner, mock_embeddings):
+    """Test CV training with invalid time values."""
+    # Create times with invalid values
+    invalid_times = np.array([-1, 0, 1041, 100, 50])  # -1, 0, and 1041 are invalid
+    valid_embeddings = mock_embeddings[:5]  # Match length with times
+    
+    metrics = model_learner.train(
+        valid_embeddings,
+        invalid_times,
+        use_cv=True,
+        n_splits=2  # Use 2 folds since we'll only have 2 valid samples
+    )
+    
+    # Should still get metrics even with filtered data
+    assert 'cv_r2_mean' in metrics
+    assert 'cv_mae_mean' in metrics
+    assert 'cv_rmse_mean' in metrics
+
+
+def test_train_with_cv_scaling(model_learner, mock_embeddings, mock_times):
+    """Test that CV properly scales data in each fold."""
+    # Train with CV
+    model_learner.train(
+        mock_embeddings,
+        mock_times,
+        use_cv=True,
+        n_splits=5
+    )
+    
+    # Get predictions for original data
+    predictions = model_learner.predict(mock_embeddings)
+    
+    # Create some test data with different scale
+    scaled_embeddings = mock_embeddings * 2  # Double the scale
+    scaled_predictions = model_learner.predict(scaled_embeddings)
+    
+    # Check that the model preserves relative ordering
+    # If A > B in original predictions, should still be true in scaled predictions
+    original_order = np.argsort(predictions)
+    scaled_order = np.argsort(scaled_predictions)
+    np.testing.assert_array_equal(original_order, scaled_order)
+
+
+def test_train_with_cv_persistence(model_learner, mock_embeddings, mock_times, tmp_path):
+    """Test model persistence after CV training."""
+    # Train with CV
+    model_learner.train(
+        mock_embeddings,
+        mock_times,
+        use_cv=True,
+        n_splits=5
+    )
+    
+    # Get predictions before saving
+    test_embeddings = np.random.randn(20, 10)
+    orig_predictions = model_learner.predict(test_embeddings)
+    
+    # Save the model
+    save_path = tmp_path / "cv_model.joblib"
+    model_learner.save(save_path)
+    
+    # Create new learner and load
+    new_learner = ModelLearner(model=LinearRegression(), logger=logging.getLogger("test"))
+    new_learner.load(save_path)
+    
+    # Predictions should match without needing to call prepare_data
+    loaded_predictions = new_learner.predict(test_embeddings)
+    np.testing.assert_array_almost_equal(orig_predictions, loaded_predictions)
+
+
 def test_predict(model_learner, mock_embeddings, mock_times):
     """Test model prediction functionality."""
     # Train the model first
