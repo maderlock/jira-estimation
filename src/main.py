@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 from sklearn.neural_network import MLPRegressor
+from sklearn.ensemble import RandomForestRegressor
 
 from data_fetching import JiraDataFetcher, DataCache
 from model_learner import ModelLearner
@@ -33,8 +34,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force-update", action="store_true", help="Force full update of cached data")
     # Model arguments
     parser.add_argument("--test-size", type=float, default=model_config.test_size, help="Test set size")
-    parser.add_argument("--model-type", choices=["linear", "neural"], default=model_config.model_type,
-                      help="Model type (linear or neural)")
+    parser.add_argument("--model-type", choices=["linear", "random_forest", "neural"], default=model_config.model_type,
+                      help="Model type (linear, random_forest or neural)")
     parser.add_argument("--use-cv", action="store_true", help="Use cross-validation (linear only)")
     parser.add_argument("--cv-splits", type=int, default=model_config.cv_splits, help="Number of CV splits")
     parser.add_argument("--epochs", type=int, default=model_config.epochs, help="Training epochs (neural only)")
@@ -57,8 +58,6 @@ def main(args: argparse.Namespace) -> None:
     Args:
         args: Command line arguments
     """
-    # Load environment variables
-    load_environment()
     
     # Setup logging
     logger = setup_logging(args.log_level)
@@ -149,9 +148,14 @@ def main(args: argparse.Namespace) -> None:
         logger.info(f"Training {args.model_type} model")
         if args.model_type == "linear":
             model = LinearRegression()
+        elif args.model_type == "random_forest":
+            model = RandomForestRegressor(
+                n_estimators=get_model_config().n_estimators,
+                random_state=get_model_config().random_seed
+            )
         else:
             model = MLPRegressor()
-        
+
         model_learner = ModelLearner(
             model=model,
             logger=logger.getChild("model_learner")
@@ -203,5 +207,7 @@ def main(args: argparse.Namespace) -> None:
 
 
 if __name__ == "__main__":
+    # Load environment variables
+    load_environment()
     args = parse_args()
     sys.exit(main(args))

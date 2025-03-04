@@ -45,6 +45,7 @@ class ModelConfig(NamedTuple):
     test_size: float
     cv_splits: int
     random_seed: int
+    n_estimators: int
     epochs: int
     batch_size: int
     learning_rate: float
@@ -79,6 +80,7 @@ def get_model_config() -> ModelConfig:
         test_size=float(os.getenv("DEFAULT_TEST_SIZE", "0.2")),
         cv_splits=int(os.getenv("DEFAULT_CV_SPLITS", "5")),
         random_seed=int(os.getenv("DEFAULT_RANDOM_SEED", "42")),
+        n_estimators=int(os.getenv("DEFAULT_N_ESTIMATORS", "100")),
         epochs=int(os.getenv("DEFAULT_EPOCHS", "100")),
         batch_size=int(os.getenv("DEFAULT_BATCH_SIZE", "32")),
         learning_rate=float(os.getenv("DEFAULT_LEARNING_RATE", "0.001")),
