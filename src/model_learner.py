@@ -1,28 +1,31 @@
-"""Linear regression model implementation."""
+"""Model learner implementation."""
 import logging
 from pathlib import Path
 from typing import Dict, Optional, Tuple, List
 
 import numpy as np
-from sklearn.linear_model import LinearRegression
+from sklearn.base import RegressorMixin
 from sklearn.model_selection import KFold, cross_validate, train_test_split
 from sklearn.preprocessing import StandardScaler
 
 from utils import calculate_metrics, get_model_config
 
-
-class LinearEstimator:
-    """Linear regression model for time estimation."""
-
-    def __init__(self, logger: Optional[logging.Logger] = None, config: Optional[Dict] = None):
+class ModelLearner:
+    def __init__(
+            self,
+            model: RegressorMixin,
+            logger: Optional[logging.Logger] = None,
+            config: Optional[Dict] = None
+        ):
         """
-        Initialize the linear model.
+        Initialize the learner model.
         
         Args:
+            model: Scikit-learn regression model
             logger: Optional logger instance
             config: Optional model configuration
         """
-        self.model = LinearRegression()
+        self.model = model
         self.scaler = StandardScaler()
         self.X_train: Optional[np.ndarray] = None
         self.X_test: Optional[np.ndarray] = None
@@ -30,7 +33,7 @@ class LinearEstimator:
         self.y_test: Optional[np.ndarray] = None
         self.config = config or get_model_config()
         self.logger = logger or logging.getLogger(__name__)
-        self.logger.info("Initialized LinearEstimator")
+        self.logger.info("Initialized ModelLearner")
         self.logger.debug(f"Model configuration: {self.config}")
 
     def prepare_data(
@@ -58,42 +61,29 @@ class LinearEstimator:
         # Validate that we have valid Y values
         if len(y) == 0:
             raise ValueError("No training examples provided")
-            
+
         # Log original time distribution
         self.logger.info(
             f"Original time distribution (hours) - "
             f"min: {y.min():.2f}, max: {y.max():.2f}, "
             f"mean: {y.mean():.2f}, median: {np.median(y):.2f}"
         )
-        
-        # Filter out invalid time values
-        valid_mask = (y > 0) & (y <= 1040)  # Max 6 months of work
-        if not np.all(valid_mask):
-            invalid_count = np.sum(~valid_mask)
-            self.logger.warning(
-                f"Filtered out {invalid_count} samples with invalid time values "
-                f"(<=0 or >1040 hours)"
-            )
-            X = X[valid_mask]
-            y = y[valid_mask]
-            
-        if len(y) == 0:
+
+        self.logger.debug(f"Input shapes - X: {X.shape}, y: {y.shape}")
+
+        # Filter invalid times
+        valid_mask = (y > 0) & (y <= 1000)  # Times must be positive and reasonable
+        if not np.any(valid_mask):
             raise ValueError("No valid training examples after filtering")
             
-        # Log filtered time distribution
-        self.logger.info(
-            f"Filtered time distribution (hours) - "
-            f"min: {y.min():.2f}, max: {y.max():.2f}, "
-            f"mean: {y.mean():.2f}, median: {np.median(y):.2f}"
-        )
-            
-        self.logger.debug(f"Input shapes - X: {X.shape}, y: {y.shape}")
-        
+        X = X[valid_mask]
+        y = y[valid_mask]
+
         indices = np.arange(len(X))
         self.X_train, self.X_test, self.y_train, self.y_test, self._train_indices, self._test_indices = train_test_split(
             X, y, indices, test_size=test_size, random_state=self.config.random_seed
         )
-        
+
         # Fit and transform the training data
         self.X_train = self.scaler.fit_transform(self.X_train)
         # Transform test data using training statistics
@@ -111,7 +101,7 @@ class LinearEstimator:
         )
         self.logger.debug(f"Train shapes - X: {self.X_train.shape}, y: {self.y_train.shape}")
         self.logger.debug(f"Test shapes - X: {self.X_test.shape}, y: {self.y_test.shape}")
-        
+
         return self.X_train, self.X_test, self.y_train, self.y_test
 
     def train(
@@ -135,14 +125,14 @@ class LinearEstimator:
         Returns:
             Dictionary containing evaluation metrics
         """
-        self.logger.info("Training LinearEstimator")
+        self.logger.info("Training model")
         self.logger.debug(f"Parameters - use_cv: {use_cv}, n_splits: {n_splits}")
-        
+
         if use_cv:
             n_splits = n_splits if n_splits is not None else self.config.cv_splits
             self.logger.info(f"Using {n_splits}-fold cross-validation")
             return self._train_with_cv(X, y, n_splits)
-        
+
         return self._train_with_single_split(X, y, test_size)
 
     def _train_with_single_split(
@@ -163,10 +153,10 @@ class LinearEstimator:
         # Prepare train/test split if not done already
         if self.X_train is None:
             self.prepare_data(X, y, test_size)
-        
+
         self.logger.info("Training model on train set")
         self.model.fit(self.X_train, self.y_train)
-        
+
         self.logger.info("Evaluating model on test set")
         y_pred = self.model.predict(self.X_test)
         metrics = calculate_metrics(self.y_test, y_pred)
@@ -176,14 +166,14 @@ class LinearEstimator:
     def _train_with_cv(self, X: np.ndarray, y: np.ndarray, n_splits: int) -> Dict[str, float]:
         """Train and evaluate using cross-validation."""
         self.logger.debug("Starting cross-validation")
-        
+
         # Define scoring metrics
         scoring = {
             'r2': 'r2',
             'mae': 'neg_mean_absolute_error',
             'rmse': 'neg_root_mean_squared_error'
         }
-        
+
         # Perform cross-validation
         cv_results = cross_validate(
             self.model,
@@ -193,7 +183,7 @@ class LinearEstimator:
             scoring=scoring,
             return_train_score=True
         )
-        
+
         # Convert results to positive values where needed
         metrics = {
             'cv_r2_mean': cv_results['test_r2'].mean(),
@@ -266,15 +256,23 @@ class LinearEstimator:
             self.logger.info(f"Error: {format_time(error)} ({error:.2f} hours, {error_percent:.1f}%)")
 
     def save(self, path: Path) -> None:
-        """Save the trained model."""
-        self.logger.info(f"Saving model to {path}")
+        """Save the trained model to disk.
+        
+        Args:
+            path: Path where to save the model
+        """
         import joblib
+        self.logger.info(f"Saving model to {path}")
         joblib.dump(self.model, path)
 
     def load(self, path: Path) -> None:
-        """Load the trained model."""
-        self.logger.info(f"Loading model from {path}")
+        """Load a trained model from disk.
+        
+        Args:
+            path: Path to the saved model
+        """
         import joblib
+        self.logger.info(f"Loading model from {path}")
         self.model = joblib.load(path)
 
     def get_train_test_data(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:

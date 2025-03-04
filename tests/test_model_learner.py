@@ -1,4 +1,4 @@
-"""Tests for the linear model learning functionality."""
+"""Tests for the model learner functionality."""
 import logging
 from pathlib import Path
 
@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from sklearn.linear_model import LinearRegression
 
-from src.models.linear_model import LinearEstimator
+from src.model_learner import ModelLearner
 from src.utils import get_model_config
 
 
@@ -35,15 +35,21 @@ def test_logger():
 
 
 @pytest.fixture
-def linear_estimator(test_logger):
-    """Create a LinearEstimator instance for testing."""
+def linear_model():
+    """Create a LinearRegression model instance for testing."""
+    return LinearRegression()
+
+
+@pytest.fixture
+def model_learner(test_logger, linear_model):
+    """Create a ModelLearner instance for testing."""
     config = get_model_config()
-    return LinearEstimator(logger=test_logger, config=config)
+    return ModelLearner(model=linear_model, logger=test_logger, config=config)
 
 
-def test_prepare_data_basic(linear_estimator, mock_embeddings, mock_times):
+def test_prepare_data_basic(model_learner, mock_embeddings, mock_times):
     """Test basic data preparation functionality."""
-    X_train, X_test, y_train, y_test = linear_estimator.prepare_data(
+    X_train, X_test, y_train, y_test = model_learner.prepare_data(
         mock_embeddings, mock_times, test_size=0.2
     )
     
@@ -62,13 +68,13 @@ def test_prepare_data_basic(linear_estimator, mock_embeddings, mock_times):
     assert np.abs(X_train.std() - 1) < 1e-10  # Should be close to 1
 
 
-def test_prepare_data_invalid_times(linear_estimator, mock_embeddings):
+def test_prepare_data_invalid_times(model_learner, mock_embeddings):
     """Test data preparation with invalid time values."""
     # Create times with invalid values
     invalid_times = np.array([-1, 0, 1041, 100, 50])  # -1, 0, and 1041 are invalid
     valid_embeddings = mock_embeddings[:5]  # Match length with times
     
-    X_train, X_test, y_train, y_test = linear_estimator.prepare_data(
+    X_train, X_test, y_train, y_test = model_learner.prepare_data(
         valid_embeddings, invalid_times, test_size=0.4
     )
     
@@ -76,9 +82,9 @@ def test_prepare_data_invalid_times(linear_estimator, mock_embeddings):
     assert len(y_train) + len(y_test) == 2
 
 
-def test_train_basic(linear_estimator, mock_embeddings, mock_times):
+def test_train_basic(model_learner, mock_embeddings, mock_times):
     """Test basic model training functionality."""
-    metrics = linear_estimator.train(
+    metrics = model_learner.train(
         mock_embeddings,
         mock_times,
         test_size=0.2,
@@ -96,9 +102,9 @@ def test_train_basic(linear_estimator, mock_embeddings, mock_times):
     assert metrics['rmse'] >= 0  # RMSE should be non-negative
 
 
-def test_train_with_cv(linear_estimator, mock_embeddings, mock_times):
+def test_train_with_cv(model_learner, mock_embeddings, mock_times):
     """Test model training with cross-validation."""
-    metrics = linear_estimator.train(
+    metrics = model_learner.train(
         mock_embeddings,
         mock_times,
         use_cv=True,
@@ -125,17 +131,17 @@ def test_train_with_cv(linear_estimator, mock_embeddings, mock_times):
     assert metrics['cv_rmse_std'] >= 0
 
 
-def test_predict(linear_estimator, mock_embeddings, mock_times):
+def test_predict(model_learner, mock_embeddings, mock_times):
     """Test model prediction functionality."""
     # Train the model first
-    linear_estimator.train(mock_embeddings, mock_times, test_size=0.2)
+    model_learner.train(mock_embeddings, mock_times, test_size=0.2)
     
     # Create new test data
     np.random.seed(43)  # Different seed for test data
     test_embeddings = np.random.randn(20, 10)
     
     # Make predictions
-    predictions = linear_estimator.predict(test_embeddings)
+    predictions = model_learner.predict(test_embeddings)
     
     # Check predictions shape and values
     assert len(predictions) == len(test_embeddings)
@@ -144,47 +150,47 @@ def test_predict(linear_estimator, mock_embeddings, mock_times):
     assert not np.any(np.isinf(predictions))  # No infinite values
 
 
-def test_model_persistence(linear_estimator, mock_embeddings, mock_times, tmp_path):
+def test_model_persistence(model_learner, mock_embeddings, mock_times, tmp_path):
     """Test model saving and loading functionality."""
     # Train the model
-    linear_estimator.train(mock_embeddings, mock_times, test_size=0.2)
+    model_learner.train(mock_embeddings, mock_times, test_size=0.2)
     
     # Get predictions before saving
     test_embeddings = np.random.randn(20, 10)
-    orig_predictions = linear_estimator.predict(test_embeddings)
+    orig_predictions = model_learner.predict(test_embeddings)
     
     # Save the model
     save_path = tmp_path / "model.joblib"
-    linear_estimator.save(save_path)
+    model_learner.save(save_path)
     assert save_path.exists()
     
-    # Create a new estimator and load the model
-    new_estimator = LinearEstimator()
+    # Create a new learner and load the model
+    new_learner = ModelLearner(model=LinearRegression(), logger=logging.getLogger("test"))
     # Prepare data to fit the scaler
-    new_estimator.prepare_data(mock_embeddings, mock_times, test_size=0.2)
-    new_estimator.load(save_path)
+    new_learner.prepare_data(mock_embeddings, mock_times, test_size=0.2)
+    new_learner.load(save_path)
     
     # Make predictions with loaded model
-    loaded_predictions = new_estimator.predict(test_embeddings)
+    loaded_predictions = new_learner.predict(test_embeddings)
     
     # Predictions should be identical
     np.testing.assert_array_almost_equal(orig_predictions, loaded_predictions)
 
 
-def test_edge_cases(linear_estimator):
+def test_edge_cases(model_learner):
     """Test edge cases and error handling."""
     # Test with empty data
     with pytest.raises(ValueError, match="No training examples provided"):
-        linear_estimator.prepare_data(np.array([]), np.array([]))
+        model_learner.prepare_data(np.array([]), np.array([]))
     
     # Test with mismatched dimensions
     with pytest.raises(ValueError, match="No valid training examples after filtering"):
         X = np.random.randn(10, 5)
         y = np.zeros(10)  # All invalid times
-        linear_estimator.prepare_data(X, y)
+        model_learner.prepare_data(X, y)
     
     # Test with all invalid times (redundant with above, but kept for clarity)
     X = np.random.randn(10, 5)
     all_invalid_times = np.zeros(10)  # All zeros are invalid
     with pytest.raises(ValueError, match="No valid training examples after filtering"):
-        linear_estimator.prepare_data(X, all_invalid_times)
+        model_learner.prepare_data(X, all_invalid_times)

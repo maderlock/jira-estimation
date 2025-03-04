@@ -9,10 +9,11 @@ from typing import Dict, Optional
 
 import numpy as np
 import pandas as pd
+from sklearn.linear_model import LinearRegression
+from sklearn.neural_network import MLPRegressor
 
 from data_fetching import JiraDataFetcher, DataCache
-from models.linear_model import LinearEstimator
-from models.neural_model import NeuralEstimator
+from model_learner import ModelLearner
 from text_processing import TextProcessor
 from text_processing.constants import DEFAULT_EMBEDDING_MODEL
 from utils import get_model_config, setup_logging, load_environment, get_jira_credentials, get_openai_api_key
@@ -147,16 +148,16 @@ def main(args: argparse.Namespace) -> None:
         # Train model
         logger.info(f"Training {args.model_type} model")
         if args.model_type == "linear":
-            model = LinearEstimator(logger=logger.getChild("linear_model"))
+            model = LinearRegression()
         else:
-            model = NeuralEstimator(
-                hidden_size=args.hidden_size,
-                num_layers=args.num_layers,
-                dropout=args.dropout,
-                logger=logger.getChild("neural_model")
-            )
+            model = MLPRegressor()
         
-        metrics = model.train(
+        model_learner = ModelLearner(
+            model=model,
+            logger=logger.getChild("model_learner")
+        )
+        
+        metrics = model_learner.train(
             X,
             y,
             test_size=args.test_size,
@@ -166,26 +167,27 @@ def main(args: argparse.Namespace) -> None:
         )
         
         # Get test predictions for examples
-        X_train, X_test, y_train, y_test, train_indices, test_indices = model.get_train_test_data()
+        X_train, X_test, y_train, y_test, train_indices, test_indices = model_learner.get_train_test_data()
 
         # Save results
         logger.info("Saving results")
         results_dir = Path(args.data_dir) / "results"
         results_dir.mkdir(exist_ok=True, parents=True)
         
-        model_file = results_dir / f"{args.model_type}_model"
-        model_file = model_file.with_suffix(".pkl" if args.model_type == "linear" else ".pt")
+        #TODO: Delegate what we need to to the other models
+        model_file_name = results_dir / f"{args.model_type}_model"
+        model_file_name = model_file_name.with_suffix(".pkl" if args.model_type == "linear" else ".pt")
         
-        logger.info(f"Saving model to {model_file}")
-        model.save(model_file)
+        logger.info(f"Saving model to {model_file_name}")
+        model_learner.save(model_file_name)
         
         # Show example predictions
         logger.info("\nExample Predictions from Test Set:")
-        model.show_examples(
+        model_learner.show_examples(
             titles=[df.iloc[i]["summary"] for i in test_indices],
             descriptions=[df.iloc[i]["description"] for i in test_indices],
             y_true=y_test,
-            y_pred=model.predict(X_test)
+            y_pred=model_learner.predict(X_test)
         )
 
         # Print metrics
