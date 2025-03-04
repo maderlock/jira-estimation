@@ -25,6 +25,11 @@ MAX_TOKENS = {
 DEFAULT_EMBEDDING_MODEL = "ada"  # Default value, can be overridden by env
 
 
+def get_project_root() -> str:
+    """Get the absolute path to the project root directory."""
+    return str(Path(__file__).parent.parent)
+
+
 def load_environment() -> None:
     """Load environment variables from .env file."""
     load_dotenv()
