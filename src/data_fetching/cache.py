@@ -145,9 +145,9 @@ class DataCache:
         # If no cached data or insufficient results, fetch fresh
         if len(cached_data) == 0:
             self.logger.info("Cache miss, fetching fresh data")
-            df = update_func(**update_kwargs)
-            if df is not None and len(df) > 0:
-                self.save_data(df.to_dict('records'), cache_key, update_kwargs)
+            fresh_df = update_func(**update_kwargs)
+            if fresh_df is not None and len(fresh_df) > 0:
+                df = self._update_cache_minimally(pd.DataFrame(), fresh_df, cache_key, update_kwargs)
             df = df if df is not None else pd.DataFrame()
         else:
             df = cached_data
@@ -155,9 +155,9 @@ class DataCache:
             if len(df) < max_results and max_results > cached_max_results:
                 self.logger.info(f"Insufficient data in cache (cached={len(df)}, requested={max_results})")
                 fresh_df = update_func(**update_kwargs)
-                if fresh_df is not None and len(fresh_df) > len(df):
-                    df = fresh_df
-                    self.save_data(df.to_dict('records'), cache_key, update_kwargs)
+                # Update current cache by adding in any tickets that are not currently in the cache
+                df = self._update_cache_minimally(df, fresh_df, cache_key, update_kwargs)
+
             else:
                 # Respect original cached max_results
                 df = df.head(cached_max_results)
@@ -165,25 +165,15 @@ class DataCache:
         self.logger.info(f"Retrieved {len(df)} records")
         return df
 
-    def _update_cache(self, cache_key, update_func, update_kwargs, save_to_cache) -> pd.DataFrame:
-        """
-        Update cache with fresh data.
-
-        Args:
-            cache_key: Key to identify the cached data
-            update_func: Function to call to update cache
-            update_kwargs: Keyword arguments for update function
-            save_to_cache: Whether to save the fetched data to cache
-
-        Returns:
-            DataFrame containing updated cache
-        """
-        df = pd.DataFrame()
-        self.logger.info("Fetching fresh data" + (" (saving to cache)" if save_to_cache else ""))
-        if update_kwargs is None:
-            update_kwargs = {}
-        df = update_func(**update_kwargs)
-        
-        if df is not None and len(df) > 0 and save_to_cache:
-            self.save_data(df.to_dict('records'), cache_key, update_kwargs)
+    def _update_cache_minimally(self, existing_cache, fresh_cache, cache_key, update_kwargs) -> pd.DataFrame:
+        """Update cache with fresh data, avoiding duplicates."""
+        if fresh_cache is None or len(fresh_cache) == 0:
+            return existing_cache
+            
+        # Concatenate and remove duplicates based on key
+        df = pd.concat([existing_cache, fresh_cache], ignore_index=True)
+        if len(df) > 0:
+            df = df.drop_duplicates(subset=['key'], keep='last')
+            
+        self.save_data(df.to_dict('records'), cache_key, update_kwargs)
         return df
