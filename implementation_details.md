@@ -49,7 +49,6 @@ Technical details:
 
 #### Linear Model (`linear_model.py`)
 - Uses scikit-learn's `LinearRegression` implementation
-- Supports cross-validation for more robust evaluation
 - Implements feature scaling for better performance
 
 #### Random Forest Model (`random_forest_model.py`)
@@ -62,6 +61,15 @@ Technical details:
 - Configurable architecture (layers, hidden size, dropout)
 - Implements early stopping to prevent overfitting
 - Uses Adam optimizer with configurable learning rate
+
+### Cross-Validation
+
+All model types support cross-validation for more robust evaluation:
+- Configurable number of splits via `--cv-splits` parameter (default: 5)
+- Uses sklearn's KFold with shuffling for randomized splits
+- Maintains consistent scaling within each fold
+- Reports mean and standard deviation of performance metrics
+- Trains final model on full dataset after cross-validation
 
 ### Main Script (`main.py`)
 

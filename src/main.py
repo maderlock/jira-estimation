@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--test-size", type=float, default=model_config.test_size, help="Test set size")
     parser.add_argument("--model-type", default=model_config.model_type, choices=["linear", "random_forest", "neural"],
                       help="Model type (linear, random_forest or neural)")
-    parser.add_argument("--use-cv", action="store_true", help="Use cross-validation (linear only)")
+    parser.add_argument("--use-cv", action="store_true", help="Use cross-validation")
     parser.add_argument("--cv-splits", type=int, default=model_config.cv_splits, help="Number of CV splits")
     parser.add_argument("--random-seed", type=int, default=model_config.random_seed, help="Random seed")
     parser.add_argument("--n-estimators", type=int, default=model_config.n_estimators,
@@ -186,7 +186,7 @@ def main(args: argparse.Namespace) -> None:
             y,
             test_size=args.test_size,
             use_cv=args.use_cv,
-            n_splits=args.cv_splits if args.model_type == "linear" else None,
+            n_splits=args.cv_splits,
             **({"epochs": args.epochs, "batch_size": args.batch_size} if args.model_type == "neural" else {})
         )
         

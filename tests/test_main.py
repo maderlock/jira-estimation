@@ -55,6 +55,7 @@ def mock_args():
         include_subtasks = False
         no_cache = False
         random_seed = 424
+        test_size = 0.2
     return Args
 
 def test_random_forest_with_custom_estimators(mock_data, mock_embeddings, mock_args):
@@ -93,3 +94,39 @@ def test_random_forest_with_custom_estimators(mock_data, mock_embeddings, mock_a
             assert model.min_samples_leaf == 2
             assert model.max_features == 0.8
             assert model.bootstrap == False
+
+def test_cross_validation_with_custom_splits(mock_data, mock_embeddings, mock_args):
+    """Test that cv_splits parameter is properly used when cross-validation is enabled."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Configure args
+        args = mock_args()
+        args.data_dir = temp_dir
+        args.use_cv = True
+        args.cv_splits = 7  # Custom number of splits
+        
+        # Setup patches
+        with patch('src.main.JiraDataFetcher') as mock_fetcher, \
+             patch('src.main.TextProcessor') as mock_processor, \
+             patch('src.main.ModelLearner') as mock_learner, \
+             patch('src.main.get_openai_api_key', return_value='test-key'), \
+             patch('src.main.load_environment'), \
+             patch('src.main.get_model_config') as mock_config:
+            
+            # Configure mocks
+            mock_fetcher.return_value.fetch_tickets.return_value = mock_data
+            mock_processor.return_value.process_dataframe.return_value = mock_embeddings
+            mock_learner_instance = MagicMock()
+            mock_learner.return_value = mock_learner_instance
+            mock_config.return_value.cv_splits = 3  # Default is different from custom
+            
+            # Run main
+            main(args)
+            
+            # Verify train was called with the correct cv_splits parameter
+            mock_learner_instance.train.assert_called_once()
+            train_args = mock_learner_instance.train.call_args[0]
+            train_kwargs = mock_learner_instance.train.call_args[1]
+            
+            # Check that use_cv is True and n_splits is set to our custom value
+            assert train_kwargs.get('use_cv', False) is True
+            assert train_kwargs.get('n_splits', None) == 7
