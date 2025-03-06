@@ -53,6 +53,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dropout", type=float, default=0.2, help="Dropout rate (neural only)")
     parser.add_argument("--data-dir", type=str, default="data",
                       help="Directory for data storage (cache, embeddings, results)")
+    parser.add_argument("--max-depth", type=int, default=model_config.max_depth,
+                      help="Maximum tree depth for random forest (default: %(default)s)")
+    parser.add_argument("--min-samples-split", type=int, default=model_config.min_samples_split,
+                      help="Minimum samples required to split a node (default: %(default)s)")
+    parser.add_argument("--min-samples-leaf", type=int, default=model_config.min_samples_leaf,
+                      help="Minimum samples required at a leaf node (default: %(default)s)")
+    parser.add_argument("--max-features", type=str, default=model_config.max_features,
+                      help="Number of features to consider (default: %(default)s)")
+    parser.add_argument("--bootstrap", type=bool, default=model_config.bootstrap,
+                      help="Whether to use bootstrap sampling (default: %(default)s)")
     return parser.parse_args()
 
 
@@ -156,6 +166,11 @@ def main(args: argparse.Namespace) -> None:
         elif args.model_type == "random_forest":
             model = RandomForestRegressor(
                 n_estimators=args.n_estimators,
+                max_depth=args.max_depth,
+                min_samples_split=args.min_samples_split,
+                min_samples_leaf=args.min_samples_leaf,
+                max_features=args.max_features,
+                bootstrap=args.bootstrap,
                 random_state=args.random_seed
             )
         else:

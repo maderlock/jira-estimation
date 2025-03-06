@@ -40,7 +40,12 @@ def mock_args():
         model_type = "random_forest"
         use_cv = False
         cv_splits = 3
-        n_estimators = None
+        n_estimators = 100
+        max_depth = 15
+        min_samples_split = 5
+        min_samples_leaf = 2
+        max_features = 0.8
+        bootstrap = False
         epochs = 100
         batch_size = 32
         learning_rate = 0.001
@@ -83,3 +88,8 @@ def test_random_forest_with_custom_estimators(mock_data, mock_embeddings, mock_a
             assert isinstance(model, RandomForestRegressor)
             assert model.n_estimators == 20
             assert model.random_state == 424
+            assert model.max_depth == 15
+            assert model.min_samples_split == 5
+            assert model.min_samples_leaf == 2
+            assert model.max_features == 0.8
+            assert model.bootstrap == False

@@ -51,6 +51,11 @@ class ModelConfig(NamedTuple):
     cv_splits: int
     random_seed: int
     n_estimators: int
+    max_depth: int
+    min_samples_split: int
+    min_samples_leaf: int
+    max_features: str
+    bootstrap: bool
     epochs: int
     batch_size: int
     learning_rate: float
@@ -86,6 +91,11 @@ def get_model_config() -> ModelConfig:
         cv_splits=int(os.getenv("DEFAULT_CV_SPLITS", "5")),
         random_seed=int(os.getenv("DEFAULT_RANDOM_SEED", "42")),
         n_estimators=int(os.getenv("DEFAULT_N_ESTIMATORS", "100")),
+        max_depth=int(os.getenv("DEFAULT_MAX_DEPTH", "-1")),
+        min_samples_split=int(os.getenv("DEFAULT_MIN_SAMPLES_SPLIT", "2")),
+        min_samples_leaf=int(os.getenv("DEFAULT_MIN_SAMPLES_LEAF", "1")),
+        max_features=os.getenv("DEFAULT_MAX_FEATURES", "sqrt"),
+        bootstrap=bool(os.getenv("DEFAULT_BOOTSTRAP", "True")),
         epochs=int(os.getenv("DEFAULT_EPOCHS", "100")),
         batch_size=int(os.getenv("DEFAULT_BATCH_SIZE", "32")),
         learning_rate=float(os.getenv("DEFAULT_LEARNING_RATE", "0.001")),

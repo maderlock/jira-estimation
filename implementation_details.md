@@ -71,8 +71,47 @@ The main script provides:
 - Configuration loading from environment variables
 - Logging and error handling
 
+### Tuning Script (`tune_random_forest.py`)
+
+The script uses Optuna to optimize Random Forest hyperparameters by calling `main.py` as a subprocess with different parameter combinations. It tunes:
+- `n_estimators`: Number of trees (10-300)
+- `max_depth`: Maximum tree depth (-1 to 50, where -1 means unlimited)
+- `min_samples_split`: Minimum samples for node splitting (2-20)
+- `min_samples_leaf`: Minimum samples at leaf nodes (1-10)
+- `max_features`: Feature selection strategy ("sqrt", "log2", None)
+- `bootstrap`: Whether to use bootstrap sampling (True/False)
+
+#### Architecture
+
+The script follows a modular design with five main components:
+
+1. **parse_args**: Handles command-line arguments including project keys, trial count, and storage options.
+
+2. **run_model**: 
+   - Builds dynamic command-line arguments for main.py
+   - Converts parameter names to command-line format (underscores to hyphens)
+   - Executes main.py as subprocess and captures output
+   - Parses JSON output to extract MSE metrics
+
+3. **objective**:
+   - Defines parameter search space for Optuna trials
+   - Handles parameter conversion (e.g., -1 to None for max_depth)
+   - Returns performance metric for optimization
+
+4. **save_study_results**:
+   - Exports statistics to JSON and trial data to CSV
+   - Generates visualization plots (optimization history, parameter importance)
+
+5. **main**:
+   - Creates and configures the Optuna study
+   - Runs optimization for specified number of trials
+   - Outputs optimal parameters and generates a ready-to-use command
+
+The script implements error handling throughout to manage subprocess failures and parsing errors, with detailed logging for debugging. It produces visualizations and data exports to help analyze the optimization process and parameter importance.
+
 ## Data Flow
 
+0. Optional: `tune_random_forest.py` tunes random forest hyperparameters, calling out to `main.py` for each run
 1. `main.py` parses arguments and loads configuration
 2. `data_fetcher.py` retrieves ticket data from JIRA or cache
 3. `text_processor.py` converts ticket text to embeddings

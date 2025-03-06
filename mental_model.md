@@ -44,3 +44,15 @@ The system is designed with several key principles in mind:
 - **Linear Regression**: Best for simple datasets with clear linear relationships. Fastest to train and easiest to interpret.
 - **Random Forest**: Good for capturing non-linear relationships and handling outliers. More robust than linear regression.
 - **Neural Network**: Best for large datasets with complex patterns. Requires more data and tuning but can achieve higher accuracy.
+
+## Hyperparameter Tuning
+
+Machine learning models have configuration settings (hyperparameters) that affect their performance. The system includes automated hyperparameter tuning for Random Forest models to find optimal settings without manual trial and error.
+
+The tuning process:
+1. Systematically tests different parameter combinations
+2. Measures how each combination affects prediction accuracy
+3. Intelligently narrows the search toward better-performing configurations
+4. Identifies which parameters have the most impact on performance
+
+This automated approach saves time and improves model accuracy by finding parameter combinations that humans might overlook. The system handles this complexity behind the scenes, allowing users to benefit from optimized models without needing to understand the technical details of the tuning process.
