@@ -6,11 +6,12 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 import optuna
+import logging
 
 # Add parent directory to path so we can import from scripts
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from scripts.tune_random_forest import run_model, extract_metrics_from_output
+from scripts.tune_random_forest import run_model, extract_metrics_from_output, main
 
 
 def test_extract_metrics_from_output_cv_rmse():
@@ -95,8 +96,9 @@ def test_run_model_successful(mock_run):
     params = {"n_estimators": 100, "max_depth": 10}
     project_keys = ["TEST"]
     cv_splits = 3
+    pass_log_level = "DEBUG"
     
-    result = run_model(params, project_keys, cv_splits)
+    result = run_model(params, project_keys, cv_splits, pass_log_level=pass_log_level)
     
     # Verify result
     assert result == 5.7126
@@ -116,6 +118,8 @@ def test_run_model_successful(mock_run):
     assert "100" in cmd
     assert "--max-depth" in cmd
     assert "10" in cmd
+    assert "--log-level" in cmd
+    assert "DEBUG" in cmd
 
 
 @patch('subprocess.run')
@@ -156,3 +160,66 @@ def test_run_model_no_metrics_found(mock_run):
     
     # Verify result is infinity when no metrics are found
     assert result == float('inf')
+
+
+@patch('subprocess.run')
+def test_run_model_with_log_level(mock_run):
+    """Test that pass_log_level parameter is correctly passed to the main script."""
+    # Mock subprocess.run to return successful output
+    mock_process = MagicMock()
+    mock_process.returncode = 0
+    mock_process.stdout = """
+2025-03-06 16:12:57 - root - INFO - Final model performance:
+2025-03-06 16:12:57 - root - INFO - cv_rmse_mean: 5.7126
+    """
+    mock_run.return_value = mock_process
+    
+    # Test with different log levels
+    for log_level in ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]:
+        # Call run_model with the log level
+        params = {"n_estimators": 50}
+        project_keys = ["TEST"]
+        cv_splits = 3
+        
+        run_model(params, project_keys, cv_splits, pass_log_level=log_level)
+        
+        # Verify the log level was passed correctly
+        args, kwargs = mock_run.call_args
+        cmd = args[0]
+        
+        assert "--log-level" in cmd
+        log_level_index = cmd.index("--log-level")
+        assert cmd[log_level_index + 1] == log_level
+    
+    # Test with no log level
+    mock_run.reset_mock()
+    run_model(params, project_keys, cv_splits, pass_log_level=None)
+    
+    # Verify no log level was passed
+    args, kwargs = mock_run.call_args
+    cmd = args[0]
+    assert "--log-level" not in cmd
+
+
+def test_parse_args_log_level():
+    """Test that the --log-level parameter is parsed correctly."""
+    with patch('sys.argv', ['tune_random_forest.py', 
+                           '--project-keys', 'TEST',
+                           '--log-level', 'DEBUG']):
+        from scripts.tune_random_forest import parse_args
+        args = parse_args()
+        assert args.log_level == 'DEBUG'
+    
+    with patch('sys.argv', ['tune_random_forest.py', 
+                           '--project-keys', 'TEST',
+                           '--log-level', 'WARNING']):
+        from scripts.tune_random_forest import parse_args
+        args = parse_args()
+        assert args.log_level == 'WARNING'
+    
+    # Test default value
+    with patch('sys.argv', ['tune_random_forest.py', 
+                           '--project-keys', 'TEST']):
+        from scripts.tune_random_forest import parse_args
+        args = parse_args()
+        assert args.log_level == 'INFO'  # Default value

@@ -83,6 +83,10 @@ The main script provides:
 
 The script uses Optuna to optimize Random Forest hyperparameters by calling `main.py` as a subprocess with different parameter combinations. It optimizes for RMSE (Root Mean Squared Error) from cross-validation, providing a robust measure of model performance.
 
+It has its own logging separate to the main script, defaulting to INFO. The script provides two logging-related parameters:
+- `--log-level`: Controls the verbosity of the tuning script itself (default: INFO)
+- `--pass-log-level`: If specified, passes this log level to the main script via the --log-level parameter
+
 The script tunes the following hyperparameters:
 - `n_estimators`: Number of trees (10-300)
 - `max_depth`: Maximum tree depth (-1 to 50, where -1 means unlimited)

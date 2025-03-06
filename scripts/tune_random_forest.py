@@ -55,6 +55,10 @@ def parse_args() -> argparse.Namespace:
                       help="Don't use cached JIRA data")
     parser.add_argument("--storage", type=str, default=None,
                       help="Optuna storage URL (default: in-memory)")
+    parser.add_argument("--pass-log-level", type=str, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                      help="Log level to pass to the main script")
+    parser.add_argument("--log-level", type=str, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                      default="INFO", help="Log level for the tuning script (default: INFO)")
     return parser.parse_args()
 
 def extract_metrics_from_output(output: str) -> Dict[str, float]:
@@ -84,7 +88,8 @@ def extract_metrics_from_output(output: str) -> Dict[str, float]:
 
 def run_model(params: Dict[str, Any], project_keys: List[str], 
               cv_splits: int, max_results: Optional[int] = None,
-              include_subtasks: bool = False, no_cache: bool = False) -> float:
+              include_subtasks: bool = False, no_cache: bool = False,
+              pass_log_level: Optional[str] = None) -> float:
     """
     Run main.py with specified parameters and return mean squared error.
     """
@@ -113,6 +118,8 @@ def run_model(params: Dict[str, Any], project_keys: List[str],
         cmd.append("--include-subtasks")
     if no_cache:
         cmd.append("--no-cache")
+    if pass_log_level:
+        cmd.extend(["--log-level", pass_log_level])
     
     # Run the command and capture output
     logger.info(f"Running command: {' '.join(cmd)}")
@@ -170,7 +177,8 @@ def objective(trial, args):
         cv_splits=args.cv_splits,
         max_results=args.max_results,
         include_subtasks=args.include_subtasks,
-        no_cache=args.no_cache
+        no_cache=args.no_cache,
+        pass_log_level=args.pass_log_level
     )
 
 def save_study_results(study, output_dir):
@@ -228,6 +236,11 @@ def save_study_results(study, output_dir):
 def main():
     """Run the hyperparameter tuning."""
     args = parse_args()
+    
+    # Configure logging based on command-line argument
+    log_level = getattr(logging, args.log_level)
+    logging.getLogger().setLevel(log_level)
+    logger.setLevel(log_level)
     
     logger.info("Starting random forest hyperparameter tuning with Optuna")
     logger.info(f"Project keys: {args.project_keys}")
