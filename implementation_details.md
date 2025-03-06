@@ -81,7 +81,9 @@ The main script provides:
 
 ### Tuning Script (`tune_random_forest.py`)
 
-The script uses Optuna to optimize Random Forest hyperparameters by calling `main.py` as a subprocess with different parameter combinations. It tunes:
+The script uses Optuna to optimize Random Forest hyperparameters by calling `main.py` as a subprocess with different parameter combinations. It optimizes for RMSE (Root Mean Squared Error) from cross-validation, providing a robust measure of model performance.
+
+The script tunes the following hyperparameters:
 - `n_estimators`: Number of trees (10-300)
 - `max_depth`: Maximum tree depth (-1 to 50, where -1 means unlimited)
 - `min_samples_split`: Minimum samples for node splitting (2-20)
@@ -91,26 +93,32 @@ The script uses Optuna to optimize Random Forest hyperparameters by calling `mai
 
 #### Architecture
 
-The script follows a modular design with five main components:
+The script follows a modular design with six main components:
 
 1. **parse_args**: Handles command-line arguments including project keys, trial count, and storage options.
 
-2. **run_model**: 
+2. **extract_metrics_from_output**:
+   - Parses the output from main.py to extract performance metrics
+   - Handles multiple metric types (cv_rmse_mean, rmse, mae, r2, etc.)
+   - Returns a dictionary of all found metrics with their values
+
+3. **run_model**:
    - Builds dynamic command-line arguments for main.py
    - Converts parameter names to command-line format (underscores to hyphens)
    - Executes main.py as subprocess and captures output
-   - Parses JSON output to extract MSE metrics
+   - Uses extract_metrics_from_output to parse metrics from the output
+   - Prioritizes cv_rmse_mean with fallback to regular rmse
 
-3. **objective**:
+4. **objective**:
    - Defines parameter search space for Optuna trials
    - Handles parameter conversion (e.g., -1 to None for max_depth)
    - Returns performance metric for optimization
 
-4. **save_study_results**:
+5. **save_study_results**:
    - Exports statistics to JSON and trial data to CSV
    - Generates visualization plots (optimization history, parameter importance)
 
-5. **main**:
+6. **main**:
    - Creates and configures the Optuna study
    - Runs optimization for specified number of trials
    - Outputs optimal parameters and generates a ready-to-use command

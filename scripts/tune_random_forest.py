@@ -57,6 +57,31 @@ def parse_args() -> argparse.Namespace:
                       help="Optuna storage URL (default: in-memory)")
     return parser.parse_args()
 
+def extract_metrics_from_output(output: str) -> Dict[str, float]:
+    """
+    Extract metrics from the output of main.py.
+    
+    Args:
+        output: String output from main.py
+        
+    Returns:
+        Dictionary of metric names to values
+    """
+    metrics = {}
+    try:
+        for line in output.split('\n'):
+            # Look for lines containing metrics
+            for metric in ['cv_rmse_mean', 'cv_mae_mean', 'cv_r2_mean', 'rmse', 'mae', 'r2']:
+                if f"{metric}:" in line:
+                    # Extract the metric value from the log line
+                    # Format example: "2025-03-06 16:12:57 - root - INFO - cv_rmse_mean: 5.7126"
+                    value_str = line.split(f"{metric}:")[1].strip()
+                    metrics[metric] = float(value_str)
+    except Exception as e:
+        logger.error(f"Error parsing metrics from output: {e}")
+    
+    return metrics
+
 def run_model(params: Dict[str, Any], project_keys: List[str], 
               cv_splits: int, max_results: Optional[int] = None,
               include_subtasks: bool = False, no_cache: bool = False) -> float:
@@ -97,23 +122,32 @@ def run_model(params: Dict[str, Any], project_keys: List[str],
         logger.error(f"Error running model: {result.stderr}")
         return float('inf')  # Return infinity for failed runs
 
-    # Parse the output to get MSE
-    try:
-        for line in result.stdout.split('\n'):
-            if line.startswith('{') and '"mse"' in line:
-                metrics = json.loads(line)
-                mse = metrics.get('mse', float('inf'))
-                logger.info(f"Trial result: MSE={mse:.4f}")
-                return mse
-                
-        logger.warning("Could not find MSE in output, returning infinity")
-        return float('inf')
-    except Exception as e:
-        logger.error(f"Error parsing output: {e}")
-        return float('inf')
+    # Parse the output to get metrics
+    metrics = extract_metrics_from_output(result.stdout)
+    
+    # First try to get cv_rmse_mean (preferred metric)
+    if 'cv_rmse_mean' in metrics:
+        rmse = metrics['cv_rmse_mean']
+        logger.info(f"Trial result: RMSE={rmse:.4f}")
+        return rmse
+    
+    # Fallback to regular RMSE if cv_rmse_mean is not available
+    if 'rmse' in metrics:
+        rmse = metrics['rmse']
+        logger.info(f"Trial result: RMSE={rmse:.4f} (non-CV)")
+        return rmse
+    
+    # If no RMSE metrics found, return infinity
+    logger.warning("Could not find RMSE in output, returning infinity")
+    return float('inf')
 
 def objective(trial, args):
-    """Optuna objective function for hyperparameter optimization."""
+    """
+    Optuna objective function for hyperparameter optimization.
+    
+    Returns the RMSE (Root Mean Squared Error) from cross-validation,
+    which Optuna will try to minimize.
+    """
     # Define model parameters to tune
     params = {
         "n_estimators": trial.suggest_int("n_estimators", 10, 300),
@@ -220,7 +254,7 @@ def main():
     # Print results
     logger.info("\nOptimization completed!")
     logger.info(f"Best trial: #{study.best_trial.number}")
-    logger.info(f"Best MSE: {study.best_value:.4f}")
+    logger.info(f"Best RMSE: {study.best_value:.4f}")
     logger.info("Best hyperparameters:")
     for param, value in study.best_params.items():
         logger.info(f"  {param}: {value}")
