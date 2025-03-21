@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from unittest.mock import MagicMock, patch
 
-from src.text_processing import TextProcessor
+from src.text_processing import AbstractTextProcessor, AITextProcessor
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def mock_openai():
 @pytest.fixture
 def text_processor(test_embeddings_dir, mock_openai):
     """Create a TextProcessor instance with mocks."""
-    processor = TextProcessor(
+    processor = AITextProcessor(
         openai_api_key="test-key",
         cache_dir=str(test_embeddings_dir)
     )
@@ -58,7 +58,7 @@ def test_process_batch_edge_cases(text_processor):
 def test_get_embeddings_basic(text_processor, mock_openai):
     """Test basic embedding functionality."""
     texts = ["Test text"]
-    embeddings = text_processor.get_embeddings(texts)
+    embeddings = text_processor._get_embeddings(texts)
     
     assert isinstance(embeddings, list)
     assert len(embeddings) == 1
@@ -72,11 +72,11 @@ def test_get_embeddings_caching(text_processor, mock_openai):
     metadata = [{"key": "TEST-1", "summary": "Test"}]
     
     # First call should use API
-    embeddings1 = text_processor.get_embeddings(texts, metadata=metadata)
+    embeddings1 = text_processor._get_embeddings(texts, metadata=metadata)
     assert mock_openai.embeddings.create.call_count == 1
     
     # Second call should use cache
-    embeddings2 = text_processor.get_embeddings(texts, metadata=metadata)
+    embeddings2 = text_processor._get_embeddings(texts, metadata=metadata)
     assert mock_openai.embeddings.create.call_count == 1  # No additional API calls
     
     assert len(embeddings1) == len(embeddings2)
@@ -89,13 +89,13 @@ def test_get_embeddings_error_handling(text_processor, mock_openai):
     # Test API error
     mock_openai.embeddings.create.side_effect = Exception("API Error")
     with pytest.raises(Exception):
-        text_processor.get_embeddings(["Error test"])
+        text_processor._get_embeddings(["Error test"])
     
     # Reset mock
     mock_openai.embeddings.create.side_effect = None
     
     # Test empty input - should work but return empty list
-    result = text_processor.get_embeddings([])
+    result = text_processor._get_embeddings([])
     assert isinstance(result, list)
     assert len(result) == 0
 
@@ -126,7 +126,7 @@ def test_combine_embeddings_with_attention(text_processor):
     ]
     query_embedding = [0.2, 0.2, 0.2]
     
-    combined = text_processor.combine_embeddings_with_attention(
+    combined = text_processor._combine_embeddings_with_attention(
         embeddings, 
         query_embedding,
         temperature=1.0
@@ -139,7 +139,7 @@ def test_combine_embeddings_with_attention(text_processor):
         assert len(combined) == 3
     
     # Test with single embedding
-    single = text_processor.combine_embeddings_with_attention(
+    single = text_processor._combine_embeddings_with_attention(
         [embeddings[0]], 
         query_embedding
     )
@@ -151,4 +151,4 @@ def test_combine_embeddings_with_attention(text_processor):
     
     # Test with empty list
     with pytest.raises(ValueError):
-        text_processor.combine_embeddings_with_attention([], query_embedding)
+        text_processor._combine_embeddings_with_attention([], query_embedding)

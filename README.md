@@ -12,8 +12,9 @@ This project provides a machine learning-based solution for automatically estima
 - Support for both linear regression, random forest, and neural network models
 - Text embedding generation using OpenAI's API
 - Efficient data caching and incremental updates
-- Cross-validation support for model evaluation
+- Cross-validation support for all model types
 - Configurable data filtering and processing
+- Hyperparameter tuning for Random Forest models using Optuna
 
 ## Documentation
 
@@ -28,14 +29,20 @@ For detailed information about the project, please refer to the following docume
 
 ```
 src/
-├── models/
-│   ├── linear_model.py    # Linear regression implementation
-│   ├── random_forest_model.py    # Random forest implementation
-│   └── neural_model.py    # Neural network implementation
-├── data_fetcher.py        # JIRA data fetching and caching
-├── text_processor.py      # Text processing and embeddings
-├── utils.py              # Shared utilities and constants
-└── main.py               # CLI and orchestration
+├── data_fetching/
+│   ├── __init__.py        # Package exports
+│   ├── cache.py           # Data caching implementation
+│   └── data_fetcher.py    # JIRA data fetching with TicketFetcher protocol
+├── text_processing/
+│   ├── __init__.py        # Package exports
+│   ├── constants.py       # Constants for embedding models
+│   ├── embedding_cache.py # Caching for embeddings
+│   ├── exceptions.py      # Custom exceptions
+│   └── text_processor.py  # Text processing with AbstractTextProcessor and AITextProcessor
+├── __init__.py            # Root package exports
+├── main.py                # CLI and JiraAI orchestration class
+├── model_learner.py       # Model training and evaluation
+└── utils.py               # Shared utilities and constants
 ```
 
 ## Setup
@@ -51,18 +58,21 @@ src/
    pip install -r requirements.txt
    ```
 
-3. Copy `.env.example` to `.env` and fill in your credentials:
+3. Set up environment variables by copying the example file:
    ```bash
    cp .env.example .env
    ```
+   Then edit `.env` to add your JIRA and OpenAI API credentials.
 
-See the [Quick Reference](quick_reference.md) for details on required environment variables.
+## Usage
 
-## Basic Usage
-
-Train a model with default settings:
+Basic usage:
 ```bash
-python src/main.py --project-keys PROJECT1 PROJECT2
+python -m src.main --project-keys PROJECT1 PROJECT2
 ```
 
-For more detailed usage examples and options, refer to the [Quick Reference](quick_reference.md) documentation.
+For more options, see the [Quick Reference](quick_reference.md) document.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

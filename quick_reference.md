@@ -26,7 +26,7 @@ This document provides a quick reference for parameters, configurations, and com
 ### Basic Usage
 
 ```bash
-python src/main.py --project-keys PROJECT1 PROJECT2
+python -m src.main --project-keys PROJECT1 PROJECT2
 ```
 
 ### Data Fetching Options
@@ -47,89 +47,96 @@ python src/main.py --project-keys PROJECT1 PROJECT2
 |-----------|-------------|---------|
 | `--model-type` | Model type (`linear`, `random_forest`, or `neural`) | From env |
 | `--test-size` | Proportion of data for testing | From env |
-| `--use-cv` | Use cross-validation (linear model only) | False |
-| `--cv-splits` | Number of CV splits | From env |
+| `--cv-splits` | Number of cross-validation splits | From env |
 | `--random-seed` | Random seed for reproducibility | From env |
 
-### Random Forest Specific
+### Linear Model Options
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--fit-intercept` | Whether to calculate the intercept | True |
+| `--normalize` | Whether to normalize features | False |
+
+### Random Forest Options
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `--n-estimators` | Number of trees in the forest | From env |
+| `--max-depth` | Maximum depth of the trees | None |
+| `--min-samples-split` | Minimum samples required to split a node | 2 |
+| `--min-samples-leaf` | Minimum samples required at a leaf node | 1 |
+| `--max-features` | Number of features to consider for best split | "auto" |
+| `--bootstrap` | Whether to use bootstrap samples | True |
 
-### Neural Network Specific
+### Neural Network Options
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `--epochs` | Training epochs | From env |
-| `--batch-size` | Batch size | From env |
-| `--learning-rate` | Learning rate | From env |
-| `--hidden-size` | Hidden layer size | 128 |
-| `--num-layers` | Number of hidden layers | 1 |
-| `--dropout` | Dropout rate | 0.2 |
+| `--hidden-layer-sizes` | Size of hidden layers | (100,) |
+| `--activation` | Activation function | "relu" |
+| `--solver` | Weight optimization solver | "adam" |
+| `--alpha` | L2 penalty parameter | 0.0001 |
+| `--batch-size` | Size of minibatches | From env |
+| `--learning-rate` | Learning rate schedule | "constant" |
+| `--learning-rate-init` | Initial learning rate | From env |
+| `--max-iter` | Maximum number of iterations (epochs) | From env |
 
-## Common Commands
+### Output Options
 
-### Basic Training
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--output-dir` | Directory for output files | "results" |
+| `--save-model` | Save the trained model | False |
+| `--log-level` | Logging level | From env |
 
-```bash
-# Train a linear model
-python src/main.py --project-keys PROJECT1 --model-type linear
+## Random Forest Tuning Script
 
-# Train a random forest model
-python src/main.py --project-keys PROJECT1 --model-type random_forest
-
-# Train a neural network
-python src/main.py --project-keys PROJECT1 --model-type neural
-```
-
-### Cache Control
+The system includes a separate script for tuning Random Forest hyperparameters:
 
 ```bash
-# Force complete refresh of cache
-python src/main.py --project-keys PROJECT1 --force-update
-
-# Use cached data only, no updates
-python src/main.py --project-keys PROJECT1 --no-cache-update
-
-# Fetch fresh but don't save to cache
-python src/main.py --project-keys PROJECT1 --no-cache --no-cache-update
+python -m scripts.tune_random_forest --project-keys PROJECT1 PROJECT2 --n-trials 100
 ```
 
-### Advanced Options
+### Tuning Options
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `--n-trials` | Number of optimization trials | 50 |
+| `--study-name` | Name for the Optuna study | "rf_tuning" |
+| `--storage` | Database URL for study storage | None |
+| `--include-subtasks` | Include subtasks in data fetch | False |
+| `--no-cache` | Don't use cached JIRA data | False |
+| `--log-level` | Logging level for tuning script | "INFO" |
+| `--pass-log-level` | Log level to pass to main script | None |
+
+## Common Examples
+
+### Basic Training and Evaluation
 
 ```bash
-# Linear model with cross-validation
-python src/main.py --project-keys PROJECT1 --model-type linear --use-cv --cv-splits 5
-
-# Random forest with custom estimators
-python src/main.py --project-keys PROJECT1 --model-type random_forest --n-estimators 200
-
-# Neural network with custom architecture
-python src/main.py --project-keys PROJECT1 --model-type neural --epochs 200 --hidden-size 256 --num-layers 2
+python -m src.main --project-keys DEV SUPPORT --model-type random_forest
 ```
 
-### Hyperparameter Tuning
+### Using Cross-Validation
 
 ```bash
-# Tune random forest hyperparameters
-python src/tune_random_forest.py --project-keys PROJECT1
+python -m src.main --project-keys DEV SUPPORT --model-type random_forest --cv-splits 10
 ```
 
-## Output Files
+### Training with Custom Random Forest Parameters
 
-| File | Description | Location |
-|------|-------------|----------|
-| JIRA Cache | Cached JIRA ticket data | `data/jira_cache/` |
-| Embedding Cache | Cached text embeddings | `data/embedding_cache/` |
-| Linear Models | Saved linear regression models | `models/*.pkl` |
-| Random Forest Models | Saved random forest models | `models/*.pkl` |
-| Neural Network Models | Saved neural network models | `models/*.pt` |
-| Logs | Application logs | Based on logging configuration |
+```bash
+python -m src.main --project-keys DEV SUPPORT --model-type random_forest --n-estimators 200 --max-depth 10 --min-samples-split 5
+```
 
-## Performance Metrics
+### Tuning Random Forest Hyperparameters
 
-The system evaluates models using several metrics:
-- R² (coefficient of determination): Higher is better, measures explained variance
-- MAE (Mean Absolute Error): Lower is better, average absolute prediction error
-- RMSE (Root Mean Square Error): Lower is better, penalizes large errors more heavily
+```bash
+python -m scripts.tune_random_forest --project-keys DEV SUPPORT --n-trials 100 --study-name "dev_support_tuning"
+```
+
+### Saving a Trained Model
+
+```bash
+python -m src.main --project-keys DEV SUPPORT --model-type random_forest --save-model
+```

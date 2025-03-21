@@ -1,14 +1,23 @@
 """Module for fetching and processing JIRA ticket data."""
 import logging
-from datetime import datetime
-from typing import Dict, List, Optional
+from typing import List, Optional, Protocol
 
 import pandas as pd
 from jira import JIRA
 
-from text_processing import TextProcessor
+from text_processing import AbstractTextProcessor
 from .cache import DataCache
 
+class TicketFetcher(Protocol):
+    def fetch_tickets(
+        self,
+        project_keys: Optional[List[str]],
+        max_results: int,
+        use_cache: bool,
+        exclude_labels: Optional[List[str]],
+        include_subtasks: bool,
+        force_update: bool
+    ) -> pd.DataFrame: ...
 
 class JiraDataFetcher:
     """Class to handle JIRA data fetching and processing."""
@@ -18,7 +27,7 @@ class JiraDataFetcher:
         jira_url: str,
         jira_email: str,
         jira_token: str,
-        text_processor: TextProcessor,
+        text_processor: AbstractTextProcessor, #TODO: Remove close coupling
         cache_dir: str,
         logger: Optional[logging.Logger] = None,
     ):
@@ -29,7 +38,7 @@ class JiraDataFetcher:
             jira_url: JIRA instance URL
             jira_email: Authentication email
             jira_token: JIRA API token
-            text_processor: Instance of TextProcessor
+            text_processor: Instance of AbstractTextProcessor
             cache_dir: Directory for cache storage
             logger: Optional logger instance
         """

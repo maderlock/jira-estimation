@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from sklearn.ensemble import RandomForestRegressor
 
-from src.main import main
+from src.main import JiraAI
 
 @pytest.fixture
 def mock_data():
@@ -68,7 +68,7 @@ def test_random_forest_with_custom_estimators(mock_data, mock_embeddings, mock_a
         
         # Setup patches
         with patch('src.main.JiraDataFetcher') as mock_fetcher, \
-             patch('src.main.TextProcessor') as mock_processor, \
+             patch('src.main.AITextProcessor') as mock_processor, \
              patch('src.main.ModelLearner') as mock_learner, \
              patch('src.main.get_openai_api_key', return_value='test-key'), \
              patch('src.main.load_environment'), \
@@ -76,12 +76,12 @@ def test_random_forest_with_custom_estimators(mock_data, mock_embeddings, mock_a
             
             # Configure mocks
             mock_fetcher.return_value.fetch_tickets.return_value = mock_data
-            mock_processor.return_value.process_dataframe.return_value = mock_embeddings
+            mock_processor.return_value.process_batch.return_value = mock_embeddings
             mock_learner.return_value.train.return_value = None
             mock_config.return_value.random_seed = 2
             
             # Run main
-            main(args)
+            JiraAI(args).execute()
             
             # Verify RandomForestRegressor was created with custom parameters
             mock_learner.assert_called_once()
@@ -106,7 +106,7 @@ def test_cross_validation_with_custom_splits(mock_data, mock_embeddings, mock_ar
         
         # Setup patches
         with patch('src.main.JiraDataFetcher') as mock_fetcher, \
-             patch('src.main.TextProcessor') as mock_processor, \
+             patch('src.main.AITextProcessor') as mock_processor, \
              patch('src.main.ModelLearner') as mock_learner, \
              patch('src.main.get_openai_api_key', return_value='test-key'), \
              patch('src.main.load_environment'), \
@@ -114,13 +114,13 @@ def test_cross_validation_with_custom_splits(mock_data, mock_embeddings, mock_ar
             
             # Configure mocks
             mock_fetcher.return_value.fetch_tickets.return_value = mock_data
-            mock_processor.return_value.process_dataframe.return_value = mock_embeddings
+            mock_processor.return_value.process_batch.return_value = mock_embeddings
             mock_learner_instance = MagicMock()
             mock_learner.return_value = mock_learner_instance
             mock_config.return_value.cv_splits = 3  # Default is different from custom
             
             # Run main
-            main(args)
+            JiraAI(args).execute()
             
             # Verify train was called with the correct cv_splits parameter
             mock_learner_instance.train.assert_called_once()

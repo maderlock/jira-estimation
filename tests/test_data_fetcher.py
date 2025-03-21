@@ -1,19 +1,17 @@
 """Tests for the JIRA data fetcher module."""
 from unittest.mock import MagicMock
 
-import pandas as pd
 import pytest
 
-from src.data_fetching.data_fetcher import JiraDataFetcher
-from src.text_processing import TextProcessor
+from src.data_fetching import JiraDataFetcher
+from src.text_processing import AITextProcessor
 from tests.conftest import MockIssue
 
 
 @pytest.fixture
 def mock_text_processor():
     """Create a mock text processor."""
-    processor = MagicMock(spec=TextProcessor)
-    #processor.process_text.return_value = [0.1, 0.2, 0.3]  # Return embedding vector
+    processor = MagicMock(spec=AITextProcessor)
     processor.strip_formatting.return_value = "Test Summary"  # Return fixed string for summary
     return processor
 

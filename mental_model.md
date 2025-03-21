@@ -38,6 +38,23 @@ The system is designed with several key principles in mind:
 - **Flexibility**: Support for multiple model types allows for different approaches
 - **Accuracy**: Cross-validation and multiple metrics ensure reliable predictions
 - **Usability**: Command-line interface with sensible defaults makes the system easy to use
+- **Extensibility**: Abstract interfaces allow for easy addition of new implementations
+
+## Component Architecture
+
+The system follows a modular architecture with clear separation of concerns:
+
+### JiraAI (Main Orchestrator)
+The central orchestrator that coordinates the entire workflow, from data fetching to model training and evaluation.
+
+### TicketFetcher (Interface)
+Defines the contract for fetching ticket data. The current implementation uses JIRA's API, but this could be replaced with other ticket systems.
+
+### AbstractTextProcessor (Interface)
+Defines the contract for processing text data. The current implementation (AITextProcessor) uses OpenAI's API for embeddings, but this could be replaced with other embedding techniques.
+
+### ModelLearner
+Handles the training and evaluation of machine learning models, with support for different algorithms and cross-validation.
 
 ## When to Use Each Model Type
 
@@ -47,12 +64,27 @@ The system is designed with several key principles in mind:
 
 ## Hyperparameter Tuning
 
-Machine learning models have configuration settings (hyperparameters) that affect their performance. The system includes automated hyperparameter tuning for Random Forest models to find optimal settings without manual trial and error.
+Machine learning models often have hyperparameters that need to be tuned for optimal performance. The system includes a dedicated tuning script for Random Forest models using Optuna, which can:
 
-The tuning process:
-1. Systematically tests different parameter combinations
-2. Measures how each combination affects prediction accuracy
-3. Intelligently narrows the search toward better-performing configurations
-4. Identifies which parameters have the most impact on performance
+1. Automatically search for optimal hyperparameter combinations
+2. Evaluate model performance using cross-validation
+3. Visualize the optimization process
+4. Provide insights into parameter importance
 
-This automated approach saves time and improves model accuracy by finding parameter combinations that humans might overlook. The system handles this complexity behind the scenes, allowing users to benefit from optimized models without needing to understand the technical details of the tuning process.
+## Cross-Validation
+
+Cross-validation is a technique used to assess how well a model will generalize to new data. The system supports cross-validation for all model types, which:
+
+1. Divides the data into multiple folds
+2. Trains and evaluates the model on different combinations of these folds
+3. Provides a more robust estimate of model performance
+4. Helps detect overfitting
+
+## Caching Strategy
+
+The system implements a two-level caching strategy:
+
+1. **JIRA Data Cache**: Stores raw ticket data to minimize API calls
+2. **Embedding Cache**: Stores generated embeddings to reduce OpenAI API costs
+
+This approach significantly reduces the time and cost of running the system repeatedly.

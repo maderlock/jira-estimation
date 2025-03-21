@@ -6,157 +6,157 @@ This document provides technical details about the implementation of the JIRA Ti
 
 ```
 src/
-├── models/
-│   ├── linear_model.py    # Linear regression implementation
-│   ├── random_forest_model.py    # Random forest implementation
-│   └── neural_model.py    # Neural network implementation
-├── data_fetcher.py        # JIRA data fetching and caching
-├── text_processor.py      # Text processing and embeddings
-├── utils.py              # Shared utilities and constants
-└── main.py               # CLI and orchestration
+├── data_fetching/
+│   ├── __init__.py        # Package exports
+│   ├── cache.py           # Data caching implementation
+│   └── data_fetcher.py    # JIRA data fetching with TicketFetcher protocol
+├── text_processing/
+│   ├── __init__.py        # Package exports
+│   ├── constants.py       # Constants for embedding models
+│   ├── embedding_cache.py # Caching for embeddings
+│   ├── exceptions.py      # Custom exceptions
+│   └── text_processor.py  # Text processing with AbstractTextProcessor and AITextProcessor
+├── __init__.py            # Root package exports
+├── main.py                # CLI and JiraAI orchestration class
+├── model_learner.py       # Model training and evaluation
+└── utils.py               # Shared utilities and constants
 ```
 
 ## Core Components
 
-### Data Fetcher (`data_fetcher.py`)
+### Data Fetching (`data_fetching` package)
 
-The data fetcher is responsible for:
+The data fetching package is responsible for:
 - Connecting to the JIRA API using provided credentials
 - Fetching ticket data based on specified project keys and filters
 - Implementing caching to avoid redundant API calls
 - Providing incremental updates to the cache
 
 Key implementation details:
+- `TicketFetcher` Protocol defines the interface for ticket fetching
+- `JiraDataFetcher` implements the protocol for JIRA integration
 - Uses the `jira` Python package for API interaction
-- Implements a timestamp-based caching system
+- `DataCache` implements a timestamp-based caching system
 - Supports filtering by project, label, and ticket type
 - Handles pagination for large result sets
 
-### Text Processor (`text_processor.py`)
+### Text Processing (`text_processing` package)
 
-The text processor handles:
+The text processing package handles:
 - Cleaning and normalizing text data from tickets
 - Generating embeddings using OpenAI's API
 - Combining multiple text fields into a single feature vector
 
 Technical details:
+- `AbstractTextProcessor` defines the interface for text processing
+- `AITextProcessor` implements the interface using OpenAI's API
 - Uses OpenAI's embedding models (default: "ada")
-- Implements caching of embeddings to reduce API costs
-- Handles text normalization (lowercasing, punctuation removal, etc.)
-- Combines title, description, and other fields with appropriate weighting
+- `EmbeddingCache` provides caching of embeddings to reduce API costs
+- Handles text normalization and formatting removal
+- Combines ticket descriptions and summaries with attention mechanism
 
-### Models
+### Main Orchestration (`main.py`)
 
-#### Linear Model (`linear_model.py`)
+The `JiraAI` class orchestrates the entire process:
+- Parses command-line arguments
+- Initializes components (data fetcher, text processor, model learner)
+- Manages the workflow from data fetching to model training and evaluation
+- Handles logging and error reporting
+
+Technical details:
+- Uses the `log_start_stop` decorator for method execution logging
+- Modular private methods for each step of the process
+- Supports different model types through a factory-like approach
+- Handles configuration through command-line arguments and environment variables
+
+### Model Learning (`model_learner.py`)
+
+The `ModelLearner` class handles:
+- Training models on the processed data
+- Evaluating model performance
+- Cross-validation for all model types
+- Saving trained models for later use
+
+Technical details:
+- Supports multiple scikit-learn regression models
+- Implements train/test splitting with configurable ratios
+- Provides metrics calculation (RMSE, MAE, R²)
+- Supports cross-validation with configurable number of splits for all model types
+
+## Model Types
+
+The system supports three types of regression models:
+
+### Linear Regression
 - Uses scikit-learn's `LinearRegression` implementation
-- Implements feature scaling for better performance
+- Simple and interpretable model for basic prediction
+- Fastest to train and evaluate
 
-#### Random Forest Model (`random_forest_model.py`)
+### Random Forest Regression
 - Uses scikit-learn's `RandomForestRegressor`
-- Supports hyperparameter tuning via the separate tuning script
-- Implements feature importance analysis
+- Ensemble method that can capture non-linear relationships
+- Configurable hyperparameters:
+  - `n_estimators`: Number of trees in the forest
+  - `max_depth`: Maximum depth of the trees
+  - `min_samples_split`: Minimum samples required to split a node
+  - `min_samples_leaf`: Minimum samples required at a leaf node
+  - `max_features`: Number of features to consider for best split
+  - `bootstrap`: Whether to use bootstrap samples
 
-#### Neural Model (`neural_model.py`)
-- Implemented using PyTorch
-- Configurable architecture (layers, hidden size, dropout)
-- Implements early stopping to prevent overfitting
-- Uses Adam optimizer with configurable learning rate
+### Neural Network Regression
+- Uses scikit-learn's `MLPRegressor`
+- Multi-layer perceptron for complex pattern recognition
+- Configurable hyperparameters:
+  - `hidden_layer_sizes`: Size of hidden layers
+  - `activation`: Activation function
+  - `solver`: Weight optimization solver
+  - `alpha`: L2 penalty parameter
+  - `batch_size`: Size of minibatches
+  - `learning_rate`: Learning rate schedule
+  - `max_iter`: Maximum number of iterations (epochs)
 
-### Cross-Validation
+## Cross-Validation
 
-All model types support cross-validation for more robust evaluation:
-- Configurable number of splits via `--cv-splits` parameter (default: 5)
-- Uses sklearn's KFold with shuffling for randomized splits
-- Maintains consistent scaling within each fold
-- Reports mean and standard deviation of performance metrics
-- Trains final model on full dataset after cross-validation
+Cross-validation is implemented for all model types to provide more robust performance evaluation:
+- Uses scikit-learn's `KFold` for splitting data
+- Configurable number of splits via the `--cv-splits` parameter
+- Reports mean and standard deviation of performance metrics across folds
+- Helps identify overfitting and provides more reliable performance estimates
 
-### Main Script (`main.py`)
+## Random Forest Tuning
 
-The main script provides:
-- Command-line interface using `argparse`
-- Orchestration of the entire workflow
-- Configuration loading from environment variables
-- Logging and error handling
+The system includes a separate script for tuning Random Forest hyperparameters using Optuna:
+- Supports tuning multiple hyperparameters simultaneously
+- Uses Bayesian optimization to efficiently search the parameter space
+- Optimizes for RMSE from cross-validation
+- Provides visualization of the optimization process
+- Saves results in multiple formats (JSON, CSV, HTML plots)
 
-### Tuning Script (`tune_random_forest.py`)
+Key components of the tuning script:
 
-The script uses Optuna to optimize Random Forest hyperparameters by calling `main.py` as a subprocess with different parameter combinations. It optimizes for RMSE (Root Mean Squared Error) from cross-validation, providing a robust measure of model performance.
+1. **create_study**:
+   - Initializes an Optuna study with specified parameters
+   - Supports persistence via SQLite database
 
-It has its own logging separate to the main script, defaulting to INFO. The script provides two logging-related parameters:
-- `--log-level`: Controls the verbosity of the tuning script itself (default: INFO)
-- `--pass-log-level`: If specified, passes this log level to the main script via the --log-level parameter
-
-The script tunes the following hyperparameters:
-- `n_estimators`: Number of trees (10-300)
-- `max_depth`: Maximum tree depth (-1 to 50, where -1 means unlimited)
-- `min_samples_split`: Minimum samples for node splitting (2-20)
-- `min_samples_leaf`: Minimum samples at leaf nodes (1-10)
-- `max_features`: Feature selection strategy ("sqrt", "log2", None)
-- `bootstrap`: Whether to use bootstrap sampling (True/False)
-
-#### Architecture
-
-The script follows a modular design with six main components:
-
-1. **parse_args**: Handles command-line arguments including project keys, trial count, and storage options.
-
-2. **extract_metrics_from_output**:
-   - Parses the output from main.py to extract performance metrics
-   - Handles multiple metric types (cv_rmse_mean, rmse, mae, r2, etc.)
-   - Returns a dictionary of all found metrics with their values
+2. **objective**:
+   - Defines the objective function for optimization
+   - Runs the model with candidate parameters
+   - Returns RMSE for Optuna to minimize
 
 3. **run_model**:
-   - Builds dynamic command-line arguments for main.py
-   - Converts parameter names to command-line format (underscores to hyphens)
-   - Executes main.py as subprocess and captures output
-   - Uses extract_metrics_from_output to parse metrics from the output
-   - Prioritizes cv_rmse_mean with fallback to regular rmse
+   - Executes the main script with specified parameters
+   - Extracts RMSE from the output logs
+   - Handles errors and timeouts
 
-4. **objective**:
-   - Defines parameter search space for Optuna trials
-   - Handles parameter conversion (e.g., -1 to None for max_depth)
-   - Returns performance metric for optimization
+4. **optimize**:
+   - Runs the optimization process for a specified number of trials
+   - Implements pruning for inefficient parameter combinations
 
 5. **save_study_results**:
    - Exports statistics to JSON and trial data to CSV
    - Generates visualization plots (optimization history, parameter importance)
 
 6. **main**:
-   - Creates and configures the Optuna study
-   - Runs optimization for specified number of trials
-   - Outputs optimal parameters and generates a ready-to-use command
-
-The script implements error handling throughout to manage subprocess failures and parsing errors, with detailed logging for debugging. It produces visualizations and data exports to help analyze the optimization process and parameter importance.
-
-## Data Flow
-
-0. Optional: `tune_random_forest.py` tunes random forest hyperparameters, calling out to `main.py` for each run
-1. `main.py` parses arguments and loads configuration
-2. `data_fetcher.py` retrieves ticket data from JIRA or cache
-3. `text_processor.py` converts ticket text to embeddings
-4. The selected model is trained on the processed data
-5. Model performance is evaluated and results are displayed
-6. The trained model is saved for future use
-
-## Caching System
-
-The system implements two levels of caching:
-1. **JIRA Data Cache**: Stores raw ticket data to minimize API calls
-   - Located in `data/jira_cache/`
-   - Indexed by project key
-   - Includes timestamps for incremental updates
-   
-2. **Embedding Cache**: Stores generated embeddings to reduce OpenAI API costs
-   - Located in `data/embedding_cache/`
-   - Indexed by text hash
-   - Includes model information for version control
-
-## Model Persistence
-
-Trained models are saved in the `data/results` directory with appropriate extensions:
-- Linear models: `.pkl` (using pickle)
-- Random forest models: `.pkl` (using pickle)
-- Neural networks: `.pt` (using PyTorch's save mechanism)
-
-Each saved model includes metadata about its training parameters and performance metrics.
+   - Parses command-line arguments
+   - Orchestrates the entire tuning process
+   - Handles logging and error reporting

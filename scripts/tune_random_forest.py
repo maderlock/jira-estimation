@@ -130,7 +130,7 @@ def run_model(params: Dict[str, Any], project_keys: List[str],
         return float('inf')  # Return infinity for failed runs
 
     # Parse the output to get metrics
-    metrics = extract_metrics_from_output(result.stdout)
+    metrics = extract_metrics_from_output(result.stderr)
     
     # First try to get cv_rmse_mean (preferred metric)
     if 'cv_rmse_mean' in metrics:
@@ -253,7 +253,7 @@ def main():
     # Create the study
     study = optuna.create_study(
         study_name=study_name,
-        direction="minimize",  # We want to minimize MSE
+        direction="minimize",  # We want to minimize RMSE
         storage=args.storage,
         load_if_exists=True
     )
